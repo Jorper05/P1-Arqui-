@@ -27,21 +27,22 @@
 ; Reutilicen este mismo patron en compute_stats y normalize_array.
 ; ---------------------------------------------------------------
 sum_array:
-    xor     eax, eax               ; eax = i = 0
-    vxorps  ymm0, ymm0, ymm0       ; ymm0 = acumulador vectorial (8 carriles) = 0
+    xor     eax, eax
+    vxorps  ymm0, ymm0, ymm0
 
     mov     ecx, esi
-    and     ecx, ~7                ; ecx = n redondeado hacia abajo, multiplo de 8
-    test    ecx, ecx
-    jle     .sum_reduce
+    and     ecx, -8                  ; cantidad procesable en bloques de 8
 
 .sum_vec_loop:
     cmp     eax, ecx
     jge     .sum_reduce
-    vmovups ymm1, [rdi + rax*4]    ; carga 8 floats (unaligned: siempre valido)
-    vaddps  ymm0, ymm0, ymm1       ; acumula por carril
+
+    vmovaps ymm1, [rdi + rax*4]      ; 8 floats, base alineada a 32 B
+    vaddps  ymm0, ymm0, ymm1
+
     add     eax, 8
     jmp     .sum_vec_loop
+
 
 .sum_reduce:
     ; --- reduccion horizontal: 8 carriles de ymm0 -> un escalar ---
@@ -50,14 +51,15 @@ sum_array:
     vhaddps xmm0, xmm0, xmm0       ; suma horizontal dentro de 128 bits
     vhaddps xmm0, xmm0, xmm0       ; xmm0[0] = suma total de los 8 carriles originales
 
-.sum_scalar_tail:
-    ; --- elementos sobrantes (n % 8), uno a la vez ---
+.sum_tail:
     cmp     eax, esi
     jge     .sum_done
+
     vmovss  xmm1, [rdi + rax*4]
     vaddss  xmm0, xmm0, xmm1
+
     inc     eax
-    jmp     .sum_scalar_tail
+    jmp     .sum_tail
 
 .sum_done:
     vzeroupper                     ; evita penalizacion de transicion AVX/SSE
@@ -88,49 +90,230 @@ sum_array:
 ;      registros YMM.
 ; ---------------------------------------------------------------
 compute_stats:
-    push    rbx
-    push    r12
-    push    r13
-    push    r14
-    push    r15
+    test    esi, esi
+    jg      .stats_nonzero
 
-    ; TODO: implementar el algoritmo descrito arriba.
-
-    ; --- placeholder temporal: elimine estas lineas al implementar ---
+    ; Caso n == 0: escribir 0.0 en todos los resultados.
     vxorps  xmm0, xmm0, xmm0
     vmovss  [rdx], xmm0
     vmovss  [rcx], xmm0
-    vmovss  [r8], xmm0
-    vmovss  [r9], xmm0
-    ; --- fin placeholder ---
-
-    pop     r15
-    pop     r14
-    pop     r13
-    pop     r12
-    pop     rbx
+    vmovss  [r8],  xmm0
+    vmovss  [r9],  xmm0
     vzeroupper
     ret
 
+.stats_nonzero:
+    ; -----------------------------------------------------------
+    ; Primera pasada: SUM, MIN y MAX.
+    ; -----------------------------------------------------------
+    xor     eax, eax
+    mov     r10d, esi
+    and     r10d, -8                 ; limite vectorial
+
+    vxorps  ymm0, ymm0, ymm0         ; acumulador de suma
+
+    ; Inicializar min/max con arr[0].
+    vbroadcastss ymm3, [rdi]
+    vmovaps ymm4, ymm3
+
+.stats_first_vec:
+    cmp     eax, r10d
+    jge     .stats_first_reduce
+
+    vmovaps ymm1, [rdi + rax*4]
+    vaddps  ymm0, ymm0, ymm1
+    vminps  ymm3, ymm3, ymm1
+    vmaxps  ymm4, ymm4, ymm1
+
+    add     eax, 8
+    jmp     .stats_first_vec
+
+.stats_first_reduce:
+    ; SUM: ymm0 -> xmm10[0]
+    vextractf128 xmm2, ymm0, 1
+    vaddps  xmm0, xmm0, xmm2
+    vhaddps xmm0, xmm0, xmm0
+    vhaddps xmm0, xmm0, xmm0
+    vmovss  xmm10, xmm0              ; xmm10 = suma escalar
+
+    ; MIN: ymm3 -> xmm11[0]
+    vextractf128 xmm5, ymm3, 1
+    vminps  xmm3, xmm3, xmm5
+    vshufps xmm5, xmm3, xmm3, 0x4E
+    vminps  xmm3, xmm3, xmm5
+    vshufps xmm5, xmm3, xmm3, 0xB1
+    vminps  xmm3, xmm3, xmm5
+    vmovss  xmm11, xmm3
+
+    ; MAX: ymm4 -> xmm12[0]
+    vextractf128 xmm5, ymm4, 1
+    vmaxps  xmm4, xmm4, xmm5
+    vshufps xmm5, xmm4, xmm4, 0x4E
+    vmaxps  xmm4, xmm4, xmm5
+    vshufps xmm5, xmm4, xmm4, 0xB1
+    vmaxps  xmm4, xmm4, xmm5
+    vmovss  xmm12, xmm4
+
+.stats_first_tail:
+    ; Completar suma/min/max para n % 8 elementos.
+    cmp     eax, esi
+    jge     .stats_mean
+
+    vmovss  xmm1, [rdi + rax*4]
+    vaddss  xmm10, xmm10, xmm1
+    vminss  xmm11, xmm11, xmm1
+    vmaxss  xmm12, xmm12, xmm1
+
+    inc     eax
+    jmp     .stats_first_tail
+
+.stats_mean:
+    ; mean = sum / n
+    vxorps      xmm6, xmm6, xmm6
+    vcvtsi2ss   xmm6, xmm6, esi
+    vdivss      xmm13, xmm10, xmm6   ; xmm13 = mean
+
+    vmovss  [rdx], xmm13
+    vmovss  [r8],  xmm11
+    vmovss  [r9],  xmm12
+
+    ; -----------------------------------------------------------
+    ; Segunda pasada: sum((x - mean)^2)
+    ; -----------------------------------------------------------
+    xor     eax, eax
+    vxorps  ymm2, ymm2, ymm2         ; acumulador de cuadrados
+    vbroadcastss ymm6, xmm13          ; mean en los 8 carriles
+
+.stats_var_vec:
+    cmp     eax, r10d
+    jge     .stats_var_reduce
+
+    vmovaps ymm1, [rdi + rax*4]
+    vsubps  ymm1, ymm1, ymm6
+    vmulps  ymm1, ymm1, ymm1
+    vaddps  ymm2, ymm2, ymm1
+
+    add     eax, 8
+    jmp     .stats_var_vec
+
+.stats_var_reduce:
+    ; Reducir el acumulador vectorial de varianza.
+    vextractf128 xmm5, ymm2, 1
+    vaddps  xmm2, xmm2, xmm5
+    vhaddps xmm2, xmm2, xmm2
+    vhaddps xmm2, xmm2, xmm2
+    vmovss  xmm14, xmm2              ; suma de cuadrados escalar
+
+.stats_var_tail:
+    cmp     eax, esi
+    jge     .stats_var_finish
+
+    vmovss  xmm1, [rdi + rax*4]
+    vsubss  xmm1, xmm1, xmm13
+    vmulss  xmm1, xmm1, xmm1
+    vaddss  xmm14, xmm14, xmm1
+
+    inc     eax
+    jmp     .stats_var_tail
+
+.stats_var_finish:
+    ; var = suma_cuadrados / n
+    vxorps      xmm6, xmm6, xmm6
+    vcvtsi2ss   xmm6, xmm6, esi
+    vdivss      xmm14, xmm14, xmm6
+    vmovss      [rcx], xmm14
+
+    vzeroupper
+    ret
+
+
 ; ---------------------------------------------------------------
 ; void normalize_array(const float *in, float *out, int n,
-;                       float mean, float stddev)
-;   rdi = in, rsi = out, edx = n, xmm0 = mean, xmm1 = stddev
+;                      float mean, float stddev)
 ;
-;   out[i] = (in[i] - mean) / stddev
-;   Caso borde: si stddev == 0.0, copie in[i] en out[i] tal cual.
+;   rdi = in
+;   rsi = out
+;   edx = n
+;   xmm0 = mean
+;   xmm1 = stddev
 ;
-; TODO (estudiante):
-;   - "Broadcast" mean y stddev a registros YMM con vbroadcastss
-;     (guarde antes xmm0/xmm1 en otros registros o en la pila, ya
-;     que planea usar xmm0/xmm1 tambien como temporales del bucle).
-;   - Bucle vectorial de 8 en 8: vmovups/vmovaps carga, vsubps,
-;     vdivps (o vmulps por el reciproco de stddev si quieren
-;     optimizar), vmovups/vmovaps guarda.
-;   - Bucle escalar de cierre para el remanente (n % 8), igual que
-;     en sum_array.
-;   - 'vzeroupper' antes del 'ret'.
+; out[i] = (in[i] - mean) / stddev
+;
+; Si stddev == 0.0, se copia in[] a out[] para evitar division
+; entre cero, tal como especifica include/stats.h.
 ; ---------------------------------------------------------------
 normalize_array:
-    ; TODO: implementar
+    test    edx, edx
+    jle     .norm_done
+
+    ; Comprobar stddev == 0.0 (tambien considera -0.0 como cero).
+    vxorps  xmm2, xmm2, xmm2
+    vucomiss xmm1, xmm2
+    je      .norm_copy
+
+    ; Guardar/broadcast de argumentos escalares antes del bucle.
+    vmovss      xmm8, xmm0
+    vmovss      xmm9, xmm1
+    vbroadcastss ymm6, xmm8          ; mean
+    vbroadcastss ymm7, xmm9          ; stddev
+
+    xor     eax, eax
+    mov     ecx, edx
+    and     ecx, -8
+
+.norm_vec_loop:
+    cmp     eax, ecx
+    jge     .norm_tail
+
+    vmovaps ymm0, [rdi + rax*4]
+    vsubps  ymm0, ymm0, ymm6
+    vdivps  ymm0, ymm0, ymm7
+    vmovaps [rsi + rax*4], ymm0
+
+    add     eax, 8
+    jmp     .norm_vec_loop
+
+.norm_tail:
+    cmp     eax, edx
+    jge     .norm_done
+
+    vmovss  xmm0, [rdi + rax*4]
+    vsubss  xmm0, xmm0, xmm8
+    vdivss  xmm0, xmm0, xmm9
+    vmovss  [rsi + rax*4], xmm0
+
+    inc     eax
+    jmp     .norm_tail
+
+.norm_copy:
+    ; stddev == 0: copiar el arreglo sin modificarlo.
+    xor     eax, eax
+    mov     ecx, edx
+    and     ecx, -8
+
+.norm_copy_vec:
+    cmp     eax, ecx
+    jge     .norm_copy_tail
+
+    vmovaps ymm0, [rdi + rax*4]
+    vmovaps [rsi + rax*4], ymm0
+
+    add     eax, 8
+    jmp     .norm_copy_vec
+
+.norm_copy_tail:
+    cmp     eax, edx
+    jge     .norm_done
+
+    vmovss  xmm0, [rdi + rax*4]
+    vmovss  [rsi + rax*4], xmm0
+
+    inc     eax
+    jmp     .norm_copy_tail
+
+.norm_done:
+    vzeroupper
     ret
+
+; Evita el warning del linker por stack ejecutable.
+section .note.GNU-stack noalloc noexec nowrite progbits
