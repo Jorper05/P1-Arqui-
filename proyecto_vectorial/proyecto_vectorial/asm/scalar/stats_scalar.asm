@@ -111,7 +111,7 @@ compute_stats:
 
     ; Varianza: Aquí sí hay que hacer el bucle a mano. sum((x - mean)^2) y obtener var = esa suma / n.
 
-    var_array:
+    .var_array:
         xor     eax, eax  ; i =0
         xorps   xmm0, xmm0 ; acumulador = 0.0
 
@@ -138,7 +138,7 @@ compute_stats:
     movss   xmm0, [rdi] ; min = arr[0] rdi es la dirección base, sin offset
     movss   xmm1, [rdi] ; max = arr[0]
 
-    min_max:
+    .min_max:
         mov     eax, 1  ; i = 1 Para empezar desde el segundo elemento del arreglo
     .min_max_loop:
         cmp     eax, esi ; comparo i con n
