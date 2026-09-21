@@ -134,7 +134,7 @@ compute_stats:
     vaddps  xmm0, xmm0, xmm2
     vhaddps xmm0, xmm0, xmm0
     vhaddps xmm0, xmm0, xmm0
-    vmovss  xmm10, xmm0              ; xmm10 = suma escalar
+    vmovaps  xmm10, xmm0              ; xmm10 = suma escalar
 
     ; MIN: ymm3 -> xmm11[0]
     vextractf128 xmm5, ymm3, 1
@@ -143,7 +143,7 @@ compute_stats:
     vminps  xmm3, xmm3, xmm5
     vshufps xmm5, xmm3, xmm3, 0xB1
     vminps  xmm3, xmm3, xmm5
-    vmovss  xmm11, xmm3
+    vmovaps  xmm11, xmm3
 
     ; MAX: ymm4 -> xmm12[0]
     vextractf128 xmm5, ymm4, 1
@@ -152,7 +152,7 @@ compute_stats:
     vmaxps  xmm4, xmm4, xmm5
     vshufps xmm5, xmm4, xmm4, 0xB1
     vmaxps  xmm4, xmm4, xmm5
-    vmovss  xmm12, xmm4
+    vmovaps  xmm12, xmm4
 
 .stats_first_tail:
     ; Completar suma/min/max para n % 8 elementos.
@@ -202,7 +202,7 @@ compute_stats:
     vaddps  xmm2, xmm2, xmm5
     vhaddps xmm2, xmm2, xmm2
     vhaddps xmm2, xmm2, xmm2
-    vmovss  xmm14, xmm2              ; suma de cuadrados escalar
+    vmovaps  xmm14, xmm2              ; suma de cuadrados escalar
 
 .stats_var_tail:
     cmp     eax, esi
@@ -252,8 +252,8 @@ normalize_array:
     je      .norm_copy
 
     ; Guardar/broadcast de argumentos escalares antes del bucle.
-    vmovss      xmm8, xmm0
-    vmovss      xmm9, xmm1
+    vmovaps      xmm8, xmm0
+    vmovaps      xmm9, xmm1
     vbroadcastss ymm6, xmm8          ; mean
     vbroadcastss ymm7, xmm9          ; stddev
 

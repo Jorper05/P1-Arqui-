@@ -116,3 +116,8 @@ gdb --args ./bin/norm_vector data/input_small.dat data/out.dat 1
 depende de la version de GDB instalada: pruebe `info registers ymm0`,
 `print $ymm0.v8_float`, o `p/x $ymm0` segun lo que este disponible en
 su laboratorio.)
+
+## Fase 3 de la persona 2
+
+Ejecutar `make test-phase3` para comparar `sum_array` escalar y AVX2 contra
+NumPy. Instrucciones, alcance y resultados en [docs/fase3_persona2.md](docs/fase3_persona2.md).

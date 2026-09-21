@@ -2,3 +2,7 @@ obj/
 bin/
 data/*.dat
 data/*.stats.txt
+
+# Entradas y resultados regenerables de la fase 3
+/data/fase3/
+__pycache__/

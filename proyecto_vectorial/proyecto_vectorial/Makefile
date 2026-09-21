@@ -50,3 +50,22 @@ run-vector: $(BIN_DIR)/norm_vector
 
 clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
+
+# Fase 3 / persona 2: validar sum_array sin llamar a otros kernels.
+PYTHON ?= python3
+.PHONY: test-phase3
+
+$(OBJ_DIR)/sum_probe_scalar.o: tests/sum_probe.c $(INC_DIR)/stats.h | dirs
+	$(CC) $(CFLAGS) -I$(INC_DIR) -c $< -o $@
+
+$(OBJ_DIR)/sum_probe_vector.o: tests/sum_probe.c $(INC_DIR)/stats.h | dirs
+	$(CC) $(CFLAGS) -DTEST_VECTOR -I$(INC_DIR) -c $< -o $@
+
+$(BIN_DIR)/sum_scalar: $(OBJ_DIR)/sum_probe_scalar.o $(SCALAR_OBJ) | dirs
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(BIN_DIR)/sum_vector: $(OBJ_DIR)/sum_probe_vector.o $(VECTOR_OBJ) | dirs
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+test-phase3: $(BIN_DIR)/sum_scalar $(BIN_DIR)/sum_vector $(BIN_DIR)/norm_scalar $(BIN_DIR)/norm_vector
+	$(PYTHON) tools/test_sum_phase3.py
