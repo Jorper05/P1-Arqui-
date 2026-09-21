@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fase 3, persona 2: comparar sum_array escalar, AVX2 y NumPy."""
+""" comparar sum_array escalar, AVX2 y NumPy."""
 import os
 import struct
 import subprocess
@@ -92,9 +92,9 @@ def main():
         general = general and ok
     print()
     if general:
-        print("FASE 3: TODAS LAS PRUEBAS PASAN")
+        print("TODAS LAS PRUEBAS PASAN")
         return 0
-    print("FASE 3: EXISTEN PRUEBAS FALLIDAS O NO COMPLETADAS")
+    print("EXISTEN PRUEBAS FALLIDAS O NO COMPLETADAS")
     return 1
 
 
