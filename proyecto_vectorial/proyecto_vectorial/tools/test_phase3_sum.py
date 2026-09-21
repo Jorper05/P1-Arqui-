@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Fase 3, persona 2: comparar sum_array escalar, AVX2 y NumPy."""
 import os
 import struct
