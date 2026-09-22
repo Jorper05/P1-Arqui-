@@ -59,10 +59,10 @@ run-vector: $(BIN_DIR)/norm_vector
 	./$(BIN_DIR)/norm_vector data/input.dat data/output_vector.dat 10
 
 # Compilacion de las pruebas de sum_array
-$(TEST_SCALAR_OBJ): tests/test_sum.c $(INC_DIR)/stats.h | dirs
+$(TEST_SCALAR_OBJ): tools/test_sum.c $(INC_DIR)/stats.h | dirs
 	$(CC) $(CFLAGS) -I$(INC_DIR) -c $< -o $@
 
-$(TEST_VECTOR_OBJ): tests/test_sum.c $(INC_DIR)/stats.h | dirs
+$(TEST_VECTOR_OBJ): tools/test_sum.c $(INC_DIR)/stats.h | dirs
 	$(CC) $(CFLAGS) -DTEST_VECTOR -I$(INC_DIR) -c $< -o $@
 
 # Enlace de las pruebas con cada kernel
