@@ -92,3 +92,8 @@ test-input-large:
 # Limpieza de objetos y ejecutables
 clean:
 	rm -rf $(OBJ_DIR) $(BIN_DIR)
+
+# Verificacion completa contra NumPy y entre implementaciones
+.PHONY: test-reference
+test-reference: all
+	$(PYTHON) tools/verify_reference.py --suite
