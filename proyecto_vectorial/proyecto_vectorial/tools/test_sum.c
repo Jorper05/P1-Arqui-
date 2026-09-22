@@ -1,3 +1,4 @@
+/* Prueba independiente de sum_array. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
