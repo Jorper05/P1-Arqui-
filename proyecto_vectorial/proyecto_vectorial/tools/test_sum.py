@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def generar(n):
     # Carpeta propia para no reemplazar entradas existentes de otras fases.
-    carpeta = os.path.join(ROOT, "data", "fase3_simple")
+    carpeta = os.path.join(ROOT, "data", "simple")
     os.makedirs(carpeta, exist_ok=True)
     archivo = os.path.join(carpeta, f"input_{n}.dat")
     subprocess.run(
