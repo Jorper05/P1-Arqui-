@@ -236,7 +236,7 @@ normalize_array:
 
     .normalize_loop:
         cmp     eax, r10d
-        jge     .normalize_done
+        jge     .normalize_scalar_tail
         vmovaps ymm2, [rdi+rax*4] ; Cargar 8 floats de in (alineado a 32 B, camino principal)
         vsubps  ymm2, ymm2, ymm0 ; (in[i] - mean)
         vdivps  ymm2, ymm2, ymm1 ; (in[i] - mean) / stddev
