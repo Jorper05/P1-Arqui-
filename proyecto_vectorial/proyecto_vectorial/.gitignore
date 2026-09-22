@@ -2,3 +2,6 @@ obj/
 bin/
 data/*.dat
 data/*.stats.txt
+
+# Entradas reproducibles
+data/inputs/
