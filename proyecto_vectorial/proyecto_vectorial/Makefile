@@ -97,3 +97,20 @@ clean:
 .PHONY: test-reference
 test-reference: all
 	$(PYTHON) tools/verify_reference.py --suite
+
+# Pruebas aisladas de estadisticos y normalizacion
+$(OBJ_DIR)/test_kernels_scalar.o: tools/test_kernels.c $(INC_DIR)/stats.h | dirs
+	$(CC) $(CFLAGS) -I$(INC_DIR) -c $< -o $@
+
+$(OBJ_DIR)/test_kernels_vector.o: tools/test_kernels.c $(INC_DIR)/stats.h | dirs
+	$(CC) $(CFLAGS) -DTEST_VECTOR -I$(INC_DIR) -c $< -o $@
+
+$(BIN_DIR)/test_kernels_scalar: $(OBJ_DIR)/test_kernels_scalar.o $(SCALAR_OBJ) | dirs
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(BIN_DIR)/test_kernels_vector: $(OBJ_DIR)/test_kernels_vector.o $(VECTOR_OBJ) | dirs
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+.PHONY: test-integration
+test-integration: all $(BIN_DIR)/test_kernels_scalar $(BIN_DIR)/test_kernels_vector
+	$(PYTHON) tools/test_integration.py
