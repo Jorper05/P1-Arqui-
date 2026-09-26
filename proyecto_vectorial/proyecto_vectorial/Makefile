@@ -5,6 +5,13 @@
 CC        := gcc
 NASM      := nasm
 PYTHON    ?= python3
+PERF      ?= perf
+
+BENCH_SIZES ?= 1000 100000 1000000 50000000
+BENCH_REPS  ?= 30
+PERF_N      ?= 1000000
+PERF_REPS   ?= 30
+SEED        ?= 123
 
 CFLAGS    := -std=gnu11 -Wall -Wextra -O2 -g
 NASMFLAGS := -f elf64 -g -F dwarf
@@ -16,7 +23,8 @@ OBJ_DIR    := obj
 BIN_DIR    := bin
 
 ASM_SCALAR := asm/scalar/stats_scalar.asm
-ASM_VECTOR := asm/vector/stats_vector.asm
+# Implementacion con suma compensada disponible en el repositorio.
+ASM_VECTOR := asm/vector/stats_vector_versión_Jorge.asm
 
 DRIVER_OBJ := $(OBJ_DIR)/driver.o
 SCALAR_OBJ := $(OBJ_DIR)/stats_scalar.o
@@ -25,10 +33,14 @@ VECTOR_OBJ := $(OBJ_DIR)/stats_vector.o
 TEST_SCALAR_OBJ := $(OBJ_DIR)/test_sum_scalar.o
 TEST_VECTOR_OBJ := $(OBJ_DIR)/test_sum_vector.o
 
-.PHONY: all clean dirs run-scalar run-vector test-sum
+.PHONY: all scalar vector test benchmark perf help clean dirs run-scalar run-vector test-sum
 .PHONY: generate-inputs generate-inputs-large test-input test-input-large
 
-all: $(BIN_DIR)/norm_scalar $(BIN_DIR)/norm_vector
+all: scalar vector
+
+scalar: $(BIN_DIR)/norm_scalar
+
+vector: $(BIN_DIR)/norm_vector
 
 dirs:
 	@mkdir -p $(OBJ_DIR) $(BIN_DIR) data
@@ -91,7 +103,7 @@ test-input-large:
 
 # Limpieza de objetos y ejecutables
 clean:
-	rm -rf $(OBJ_DIR) $(BIN_DIR)
+	rm -rf $(OBJ_DIR) $(BIN_DIR) output
 
 # Verificacion completa contra NumPy y entre implementaciones
 .PHONY: test-reference
@@ -114,3 +126,25 @@ $(BIN_DIR)/test_kernels_vector: $(OBJ_DIR)/test_kernels_vector.o $(VECTOR_OBJ) |
 .PHONY: test-integration
 test-integration: all $(BIN_DIR)/test_kernels_scalar $(BIN_DIR)/test_kernels_vector
 	$(PYTHON) tools/test_integration.py
+
+# Ejecutar todas las verificaciones; cualquier fallo detiene make.
+.PHONY: test-verifier
+test-verifier:
+	$(PYTHON) tools/test_verify_reference.py
+
+test: test-input test-verifier test-sum test-reference test-integration
+
+# Las mediciones usan el tiempo del kernel publicado por el driver.
+benchmark: all
+	$(PYTHON) tools/measure.py benchmark --sizes $(BENCH_SIZES) --reps $(BENCH_REPS) --seed $(SEED)
+
+perf: all
+	$(PYTHON) tools/measure.py perf --sizes $(PERF_N) --reps $(PERF_REPS) --seed $(SEED) --perf "$(PERF)"
+
+help:
+	@echo "make / make scalar / make vector: compilar"
+	@echo "make test: ejecutar todas las pruebas"
+	@echo "make benchmark: guardar tiempos y speedup en output/benchmark/"
+	@echo "make perf: guardar contadores en output/perf/"
+	@echo "make clean: eliminar obj/, bin/ y output/; conservar data/"
+	@echo "Variables: BENCH_SIZES, BENCH_REPS, PERF_N, PERF_REPS, SEED, PYTHON, PERF"
