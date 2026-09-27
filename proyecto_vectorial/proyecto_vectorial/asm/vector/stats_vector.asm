@@ -1,16 +1,4 @@
-  
-  ; =============================================================
-; stats_vector.asm
-; Version VECTORIZADA (AVX2, 8 floats por iteracion) de los
-; kernels de computo. Misma ABI que la version escalar.
-;
-; Antes de compilar/ejecutar en su maquina, confirme soporte AVX2:
-;   lscpu | grep avx2
-;   cat /proc/cpuinfo | grep avx2
-; =============================================================
-  
-
-    global sum_array
+global sum_array
     global compute_stats
     global normalize_array
 
@@ -34,11 +22,31 @@ sum_array:
     jmp     .sum_vec_loop
 
 .sum_reduce:
-    ; --- reduccion horizontal: 8 carriles de ymm0 -> un escalar ---
-    vextractf128 xmm2, ymm0, 1     ; xmm2 = mitad alta (carriles 4-7)
-    vaddps  xmm0, xmm0, xmm2       ; xmm0 = 4 sumas parciales (carriles 0-3 + 4-7)
-    vhaddps xmm0, xmm0, xmm0       ; suma horizontal dentro de 128 bits
-    vhaddps xmm0, xmm0, xmm0       ; xmm0[0] = suma total de los 8 carriles originales
+    ; reduccion SECUENCIAL: se vuelca ymm0 a la pila y se suma en el mismo
+    ; orden e0,e1,...,e7 que usa el bucle escalar. Asi, cuando el bucle
+
+    sub     rsp, 32
+    vmovups [rsp], ymm0    ; unaligned: la pila solo garantiza 16 B, no 32 B
+    vmovss  xmm0, [rsp]
+    vaddss  xmm0, xmm0, [rsp+4]
+    vaddss  xmm0, xmm0, [rsp+8]
+    vaddss  xmm0, xmm0, [rsp+12]
+    vaddss  xmm0, xmm0, [rsp+16]
+    vaddss  xmm0, xmm0, [rsp+20]
+    vaddss  xmm0, xmm0, [rsp+24]
+    vaddss  xmm0, xmm0, [rsp+28]
+    add     rsp, 32
+
+
+    ;Antes estabamos usando reducción horizontal con instrucciones AVX2
+    ;vextractf128 xmm2, ymm0, 1     
+    ;vaddps  xmm0, xmm0, xmm2       
+    ;vhaddps xmm0, xmm0, xmm0       
+    ;vhaddps xmm0, xmm0, xmm0
+    ;pero causaba problema con la presición y el orden de los elementos, por eso se cambio a la reduccion secuencial.
+    ;Como tal el resultado es el mismo en la mayoría de casos, pero la reduccion secuencial es mas precisa y no depende del orden de los elementos.
+
+
 
 .sum_scalar_tail:
     ; --- elementos sobrantes (n % 8), uno a la vez, sin alinear ---
@@ -125,11 +133,17 @@ compute_stats:
         jmp     .var_loop
 
     .var_reduce:
-        ; --- reduccion horizontal: 8 carriles de ymm0 -> un escalar ---
-        vextractf128 xmm2, ymm0, 1     ; xmm2 = mitad alta (carriles 4-7)
-        vaddps  xmm0, xmm0, xmm2       ; xmm0 = 4 sumas parciales (carriles 0-3 + 4-7) Ya de por sí xmm0 tenía 4 sumas parciales (carriles 0-3) y ahora le sumo los carriles 4-7 que están en xmm2
-        vhaddps xmm0, xmm0, xmm0       ; suma horizontal dentro de 128 bits  *Reduzco de 4 sumas parciales a 2 sumas parciales*
-        vhaddps xmm0, xmm0, xmm0       ; xmm0[0] = suma total de los 8 carriles originales *Sumo las ultimas 2 sumas parciales*
+        sub     rsp, 32
+        vmovups [rsp], ymm0    ; unaligned
+        vmovss  xmm0, [rsp]
+        vaddss  xmm0, xmm0, [rsp+4]
+        vaddss  xmm0, xmm0, [rsp+8]
+        vaddss  xmm0, xmm0, [rsp+12]
+        vaddss  xmm0, xmm0, [rsp+16]
+        vaddss  xmm0, xmm0, [rsp+20]
+        vaddss  xmm0, xmm0, [rsp+24]
+        vaddss  xmm0, xmm0, [rsp+28]
+        add     rsp, 32
 
     .var_scalar_tail: ;Mismo algoritmo que en la parte escalar, sin alinear
         cmp     eax, esi           ; eax = i, esi = n
@@ -152,7 +166,7 @@ compute_stats:
 
     ; Inicializo min y max con el primer elemento del arreglo (arr[0]), repetido en los 8 carriles con vbroadcastss.
     ; Como ya se descarto el caso n == 0 al inicio de compute_stats, arr[0] siempre es una lectura valida (no hay riesgo de segmentation fault).
-
+    ; Esto reemplaza la tecnica de +infinito/-infinito: mismo resultado, sin necesitar una seccion .rodata aparte.
     vbroadcastss  ymm0, [rdi] ; min = arr[0] repetido en los 8 carriles
     vbroadcastss  ymm1, [rdi] ; max = arr[0] repetido en los 8 carriles
 
@@ -236,7 +250,7 @@ normalize_array:
 
     .normalize_loop:
         cmp     eax, r10d
-        jge     .normalize_scalar_tail
+        jge     .normalize_scalar_tail   
         vmovaps ymm2, [rdi+rax*4] ; Cargar 8 floats de in (alineado a 32 B, camino principal)
         vsubps  ymm2, ymm2, ymm0 ; (in[i] - mean)
         vdivps  ymm2, ymm2, ymm1 ; (in[i] - mean) / stddev
