@@ -1,0 +1,7 @@
+
+Caso: input.dat, N=1000
+[PASS] sum_array
+[PASS] compute_stats
+[PASS] normalize_array
+
+RESULTADO GENERAL: PASA; casos fallidos=0
