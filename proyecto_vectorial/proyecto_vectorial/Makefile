@@ -5,7 +5,7 @@
 CC        := gcc
 NASM      := nasm
 PYTHON    ?= python3
-PERF      ?= perf
+PERF      ?= /usr/lib/linux-tools-6.8.0-142/perf
 
 BENCH_SIZES ?= 1000 100000 1000000 50000000
 BENCH_REPS  ?= 30
