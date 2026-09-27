@@ -12,6 +12,8 @@ BENCH_REPS  ?= 30
 PERF_N      ?= 1000000
 PERF_REPS   ?= 30
 SEED        ?= 123
+BENCH_RESULTS ?= benchmark/results
+PERF_RESULTS  ?= benchmark/results/perf
 
 CFLAGS    := -std=gnu11 -Wall -Wextra -O2 -g
 NASMFLAGS := -f elf64 -g -F dwarf
