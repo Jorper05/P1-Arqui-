@@ -46,16 +46,32 @@ def read_summary(path):
 
 def reference_stats(values):
     if not len(values):
-        raise ValueError('N = 0 debe rechazarse antes de ejecutar los kernels')
+        raise ValueError(
+            'N = 0 debe rechazarse antes de ejecutar los kernels'
+        )
+
     with np.errstate(over='raise', invalid='raise', divide='raise'):
-        total = np.sum(values, dtype=np.float32)
-        mean = np.float32(total / np.float32(len(values)))
+        # Referencia independiente: acumular con alta precision y
+        # redondear a float32 antes de continuar cada etapa.
+        total = np.float32(math.fsum(map(float, values)))
+        count = np.float32(len(values))
+        mean = np.float32(total / count)
+
         delta = values - mean
-        var = np.mean(delta * delta, dtype=np.float32)
+        squares = delta * delta
+        squared_sum = np.float32(math.fsum(map(float, squares)))
+        var = np.float32(squared_sum / count)
         stddev = np.sqrt(var)
-        # Contrato de stats.h: copiar la entrada cuando sigma es cero.
-        normalized = values.copy() if stddev == 0 else delta / stddev
-    return dict(zip(FIELDS, (total, mean, var, stddev, values.min(), values.max()))), normalized
+
+        normalized = (
+            values.copy() if stddev == 0 else delta / stddev
+        )
+
+    stats = dict(zip(
+        FIELDS,
+        (total, mean, var, stddev, values.min(), values.max())
+    ))
+    return stats, normalized
 
 
 def discrepancy_mask(actual, expected, rtol, atol):
