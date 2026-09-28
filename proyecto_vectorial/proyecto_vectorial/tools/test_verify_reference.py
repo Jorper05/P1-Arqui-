@@ -67,10 +67,59 @@ class VerificationTests(unittest.TestCase):
                     verify.read_summary(path)
 
     def test_tolerance(self):
-        self.assertTrue(verify.close(1e-8, 1e-10, 1e-4, 1e-6))
+        self.assertFalse(verify.close(1e-8, 1e-10, 1e-4, 1e-6))
         self.assertTrue(verify.close(1e-7, 0, 1e-4, 1e-6))
         self.assertFalse(verify.close(2e-6, 0, 1e-4, 1e-6))
         self.assertFalse(verify.close(float('inf'), float('inf'), 1e-4, 1e-6))
+
+    def test_nonzero_references_near_zero(self):
+        for expected in (1e-10, -1e-10, 1e-30, -1e-30):
+            with self.subTest(expected=expected):
+                self.assertTrue(verify.close(expected * (1 + 5e-5), expected, 1e-4, 1e-6))
+                self.assertFalse(verify.close(expected * (1 + 2e-4), expected, 1e-4, 1e-6))
+                self.assertFalse(verify.close(0, expected, 1e-4, 1e-6))
+
+    def test_zero_and_tolerance_boundaries(self):
+        for expected in (0.0, -0.0):
+            for actual in (0.0, -1e-6, 1e-6):
+                self.assertTrue(verify.close(actual, expected, 1e-4, 1e-6))
+            self.assertFalse(verify.close(np.nextafter(1e-6, np.inf), expected, 1e-4, 1e-6))
+        # Valores binarios exactos para comprobar el limite inclusivo.
+        self.assertTrue(verify.close(1.125, 1.0, 0.125, 0))
+        self.assertFalse(verify.close(np.nextafter(1.125, np.inf), 1.0, 0.125, 0))
+        self.assertTrue(verify.close(1e-10, 1e-10, 0, 0))
+        self.assertFalse(verify.close(2e-10, 1e-10, 0, 0))
+
+    def test_discrepancy_mask_matches_acceptance(self):
+        expected = np.array([0, 1e-10, -1e-10, 1, 1, 1], dtype=np.float64)
+        actual = np.array([1e-7, 1e-8, -1e-8, 1.00001, np.nan, np.inf])
+        mask = verify.discrepancy_mask(actual, expected, 1e-4, 1e-6)
+        np.testing.assert_array_equal(mask, [False, True, True, False, True, True])
+        for a, e, bad in zip(actual, expected, mask):
+            self.assertEqual(verify.close(a, e, 1e-4, 1e-6), not bad)
+        self.assertFalse(verify.close(actual, expected, 1e-4, 1e-6))
+        self.assertFalse(verify.close([1], [1, 2], 1e-4, 1e-6))
+
+    def test_small_statistic_is_rejected(self):
+        values = np.array([1e-10], dtype=np.float32)
+        stats, output = verify.reference_stats(values)
+        bad = dict(stats, sum=1e-8)
+        with contextlib.redirect_stdout(io.StringIO()) as log:
+            passed = verify.compare(values, {'Scalar': (bad, output)}, 1e-4, 1e-6)
+        self.assertFalse(passed)
+        self.assertIn('[FAIL] sum_array', log.getvalue())
+
+    def test_small_normalized_value_is_reported(self):
+        values = np.array([-1, 1e-10, 1], dtype=np.float32)
+        stats, output = verify.reference_stats(values)
+        wrong = output.copy()
+        wrong[1] = 1e-8
+        with contextlib.redirect_stdout(io.StringIO()) as log:
+            passed = verify.compare(values, {'Scalar': (stats, wrong)}, 1e-4, 1e-6)
+        self.assertFalse(passed)
+        self.assertIn('[FAIL] normalizacion: Scalar', log.getvalue())
+        self.assertIn('indice=1', log.getvalue())
+        self.assertIn('discrepancias=1', log.getvalue())
 
     def test_formula_uses_own_parameters(self):
         stats = dict(self.stats, mean=np.float32(2.5), stddev=np.float32(3))
