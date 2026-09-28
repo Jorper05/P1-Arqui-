@@ -165,6 +165,14 @@ static void usage(const char *prog) {
 }
 
 int main(int argc, char **argv) {
+#ifdef REQUIRE_AVX2
+    /* GCC comprueba tambien que el SO habilite el estado XMM/YMM. */
+    __builtin_cpu_init();
+    if (!__builtin_cpu_supports("avx2")) {
+        fprintf(stderr, "Error: la version vectorial requiere AVX2 habilitado por la CPU y el sistema operativo. Use bin/norm_scalar.\n");
+        return EXIT_FAILURE;
+    }
+#endif
     if (argc < 3 || argc > 4) {
         usage(argv[0]);
         return EXIT_FAILURE;
