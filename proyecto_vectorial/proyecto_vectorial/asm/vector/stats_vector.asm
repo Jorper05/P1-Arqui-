@@ -5,61 +5,65 @@ global sum_array
     section .text
 
 sum_array:
-    xor     eax, eax               ; eax = i = 0
-    vxorps  ymm0, ymm0, ymm0       ; ymm0 = acumulador vectorial (8 carriles) = 0
-
-    vxorps  ymm3, ymm3, ymm3       ; compensacion independiente por carril
-    mov     ecx, esi               ; ecx = n
-    and     ecx, ~7                ; ecx = n redondeado hacia abajo, multiplo de 8
-    test    ecx, ecx
-    jle     .sum_reduce
-
+    xor     eax, eax
+    vxorps  ymm0, ymm0, ymm0
+    vxorps  ymm2, ymm2, ymm2
+    mov     ecx, esi
+    and     ecx, ~7
 .sum_vec_loop:
     cmp     eax, ecx
     jge     .sum_reduce
-    vmovaps ymm1, [rdi + rax*4]    ; carga 8 floats (alineado a 32 B, camino principal)
-    ; Kahan por carril, conservando ocho operaciones float32 en paralelo.
-    vsubps  ymm1, ymm1, ymm3
-    vaddps  ymm4, ymm0, ymm1
-    vsubps  ymm3, ymm4, ymm0
-    vsubps  ymm3, ymm3, ymm1
-    vmovaps ymm0, ymm4
+    vmovaps ymm1, [rdi + rax*4]
+    ; TwoSum independiente en ocho carriles float32.
+    vaddps  ymm3, ymm0, ymm1
+    vsubps  ymm4, ymm3, ymm0
+    vsubps  ymm5, ymm3, ymm4
+    vsubps  ymm6, ymm0, ymm5
+    vsubps  ymm1, ymm1, ymm4
+    vaddps  ymm6, ymm6, ymm1
+    vaddps  ymm2, ymm2, ymm6
+    vmovaps ymm0, ymm3
     add     eax, 8
     jmp     .sum_vec_loop
-
 .sum_reduce:
-    sub     rsp, 32
+    ; Conservar tanto las sumas como sus residuos al reducir los carriles.
+    sub     rsp, 64
     vmovups [rsp], ymm0
+    vmovups [rsp+32], ymm2
     vxorps  xmm0, xmm0, xmm0
-    vxorps  xmm3, xmm3, xmm3
+    vxorps  xmm2, xmm2, xmm2
     xor     r11d, r11d
 .reduce_lanes_sum:
-    vmovss  xmm2, [rsp+r11*4]
-    vsubss  xmm2, xmm2, xmm3
-    vaddss  xmm4, xmm0, xmm2
-    vsubss  xmm3, xmm4, xmm0
-    vsubss  xmm3, xmm3, xmm2
-    vmovaps xmm0, xmm4
+    vmovss  xmm1, [rsp+r11*4]
+    vaddss  xmm3, xmm0, xmm1
+    vsubss  xmm4, xmm3, xmm0
+    vsubss  xmm5, xmm3, xmm4
+    vsubss  xmm6, xmm0, xmm5
+    vsubss  xmm1, xmm1, xmm4
+    vaddss  xmm6, xmm6, xmm1
+    vaddss  xmm2, xmm2, xmm6
+    vmovaps xmm0, xmm3
     inc     r11d
-    cmp     r11d, 8
+    cmp     r11d, 16
     jl      .reduce_lanes_sum
-    add     rsp, 32
-
+    add     rsp, 64
 .sum_scalar_tail:
-    ; --- elementos sobrantes (n % 8), uno a la vez, sin alinear ---
     cmp     eax, esi
     jge     .sum_done
-    vmovss  xmm1, [rdi + rax*4]
-    vsubss  xmm1, xmm1, xmm3
-    vaddss  xmm4, xmm0, xmm1
-    vsubss  xmm3, xmm4, xmm0
-    vsubss  xmm3, xmm3, xmm1
-    vmovaps xmm0, xmm4
+    vmovss  xmm1, [rdi+rax*4]
+    vaddss  xmm3, xmm0, xmm1
+    vsubss  xmm4, xmm3, xmm0
+    vsubss  xmm5, xmm3, xmm4
+    vsubss  xmm6, xmm0, xmm5
+    vsubss  xmm1, xmm1, xmm4
+    vaddss  xmm6, xmm6, xmm1
+    vaddss  xmm2, xmm2, xmm6
+    vmovaps xmm0, xmm3
     inc     eax
     jmp     .sum_scalar_tail
-
 .sum_done:
-    vzeroupper                     ; evita penalizacion de transicion AVX/SSE
+    vaddss  xmm0, xmm0, xmm2
+    vzeroupper
     ret
 
 compute_stats:
