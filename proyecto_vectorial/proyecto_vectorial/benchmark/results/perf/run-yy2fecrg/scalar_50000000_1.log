@@ -1,0 +1,8 @@
+N        = 50000000
+Suma     = 114143.710938
+Media    = 0.002283
+Varianza = 3332.708008
+StdDev   = 57.729610
+Minimo   = -99.999992
+Maximo   = 100.000000
+Tiempo promedio del kernel (30 rep.): 485.065113 ms

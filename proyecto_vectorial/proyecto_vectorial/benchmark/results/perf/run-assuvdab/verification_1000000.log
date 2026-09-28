@@ -1,0 +1,9 @@
+
+Caso: input.dat, N=1000000
+[PASS] sum_array
+[PASS] compute_stats
+  AVX2: indice=682, Expected=-4.48984702e-06, obtenido=-4.48375704e-06, discrepancias=35
+  Scalar/AVX2: indice=682, Expected=-4.48375704e-06, obtenido=-4.48984747e-06, discrepancias=35
+[FAIL] normalize_array
+
+RESULTADO GENERAL: FALLA; casos fallidos=1

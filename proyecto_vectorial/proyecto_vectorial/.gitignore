@@ -2,6 +2,10 @@ obj/
 bin/
 data/*.dat
 data/*.stats.txt
+# Datos grandes generados para benchmarking
+data/diagnostico/*.dat
 
+# Resultados generados
+benchmark/results/
 # Entradas reproducibles
 data/inputs/

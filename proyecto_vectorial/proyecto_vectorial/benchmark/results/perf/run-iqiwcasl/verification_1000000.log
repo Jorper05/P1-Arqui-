@@ -1,0 +1,12 @@
+
+Caso: input.dat, N=1000000
+[PASS] sum_array
+  var: Expected=3334.03027 Scalar=3332.80029 AVX2=3333.97192
+  stddev: Expected=57.7410622 Scalar=57.7304115 AVX2=57.7405586
+[FAIL] compute_stats
+  Scalar: indice=0, Expected=-1.55080259, obtenido=-1.55108869, discrepancias=999983
+  AVX2: indice=682, Expected=-4.48984702e-06, obtenido=-4.48375704e-06, discrepancias=35
+  Scalar/AVX2: indice=0, Expected=-1.55081618, obtenido=-1.55108869, discrepancias=1000000
+[FAIL] normalize_array
+
+RESULTADO GENERAL: FALLA; casos fallidos=1

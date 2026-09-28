@@ -1,0 +1,34 @@
+[
+  [
+    "/usr/lib/linux-tools/6.8.0-142-generic/perf",
+    "stat",
+    "--no-big-num",
+    "-x",
+    ";",
+    "-o",
+    "/home/jorge/P1-Arqui-/proyecto_vectorial/proyecto_vectorial/benchmark/results/perf/run-u8h5rr81/scalar_1000000_1.csv",
+    "-e",
+    "{cycles,instructions},cache-misses,cache-references",
+    "--",
+    "/home/jorge/P1-Arqui-/proyecto_vectorial/proyecto_vectorial/bin/norm_scalar",
+    "/tmp/measure-g6zhe6oc/input.dat",
+    "/tmp/measure-g6zhe6oc/scalar.dat",
+    "5"
+  ],
+  [
+    "/usr/lib/linux-tools/6.8.0-142-generic/perf",
+    "stat",
+    "--no-big-num",
+    "-x",
+    ";",
+    "-o",
+    "/home/jorge/P1-Arqui-/proyecto_vectorial/proyecto_vectorial/benchmark/results/perf/run-u8h5rr81/vector_1000000_1.csv",
+    "-e",
+    "{cycles,instructions},cache-misses,cache-references",
+    "--",
+    "/home/jorge/P1-Arqui-/proyecto_vectorial/proyecto_vectorial/bin/norm_vector",
+    "/tmp/measure-g6zhe6oc/input.dat",
+    "/tmp/measure-g6zhe6oc/vector.dat",
+    "5"
+  ]
+]

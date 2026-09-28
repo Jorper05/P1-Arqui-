@@ -1,0 +1,1 @@
+N=1000000: resultados fuera de tolerancia; consulte /home/jorge/P1-Arqui-/proyecto_vectorial/proyecto_vectorial/benchmark/results/perf/run-iqiwcasl/verification_1000000.log. No se publicara un resumen de rendimiento valido.

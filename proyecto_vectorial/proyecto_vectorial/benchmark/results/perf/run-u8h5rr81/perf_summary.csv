@@ -1,0 +1,3 @@
+n,version,samples,kernel_reps,cycles_mean,instructions_mean,cache_misses_mean,cache_references_mean,cycles_std,instructions_std,cache_misses_std,cache_references_std,ipc,cache_miss_percent,min_running_percent
+1000000,scalar,1,5,179576803.0,325216811.0,559866.0,4154785.0,,,,,1.8110179353176257,13.475209908575293,100.0
+1000000,vector,1,5,31641564.0,33344076.0,534427.0,3819842.0,,,,,1.0538061898583775,13.990814279752932,100.0

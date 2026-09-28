@@ -1,0 +1,12 @@
+python3 tools/measure.py perf --sizes 1000 100000 1000000 50000000 --reps 30 --seed 123 --perf "perf" --perf-runs 3 --results-dir "benchmark/results/perf" 
+Resultados de esta ejecucion: /home/jorge/P1-Arqui-/proyecto_vectorial/proyecto_vectorial/benchmark/results/perf/run-lvmt2jcp
+Error: perf termino con codigo 2: WARNING: perf not found for kernel 6.18.33.2-microsoft
+
+  You may need to install the following packages for this specific kernel:
+    linux-tools-6.18.33.2-microsoft-standard-WSL2
+    linux-cloud-tools-6.18.33.2-microsoft-standard-WSL2
+
+  You may also want to install one of the following packages to keep up to date:
+    linux-tools-standard-WSL2
+    linux-cloud-tools-standard-WSL2
+make: *** [Makefile:152: perf] Error 1

@@ -1,0 +1,21 @@
+{
+  "utc": "2026-09-28T06:17:14.834676+00:00",
+  "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "sizes": [
+    1000000
+  ],
+  "reps": 30,
+  "seed": 123,
+  "mode": "perf",
+  "perf_runs": 3,
+  "sample_scope": "contadores del proceso completo; reps iteraciones del kernel",
+  "standard_deviation": "muestral (ddof=1)",
+  "correctness": "suite pequena y cada tamano; rtol=1e-4, atol=1e-6 solo referencia cero",
+  "perf_scope": "proceso completo, incluida E/S",
+  "binaries_sha256": {
+    "scalar": "93e1ccc6bfa9ba7fb41b7a072ad120b3e31d3778cc27b7b096f45874df196cd2",
+    "vector": "de992f4be4adf1b865624271556e008a650dac8918041b3cc849130c8a0ba852"
+  },
+  "commit": "34b8e4a211edd17eff06e8b2075bd77b2f94d6e6"
+}
