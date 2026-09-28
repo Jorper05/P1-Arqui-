@@ -8,6 +8,23 @@
 #include "stats.h"
 
 #define VEC_ALIGN 32 /* bytes: alineacion requerida por AVX2 (256 bits) */
+#define WARMUP_RUNS 1 /* llamadas al kernel sin medir (codigo, TLB y cache calientes) */
+
+/* Contador TSC serializado con lfence. Son ciclos de REFERENCIA (frecuencia
+ * constante del TSC), no ciclos de nucleo: con turbo o ahorro de energia
+ * difieren de los "cycles" de perf. Es solo temporizacion en el driver; los
+ * kernels siguen siendo ensamblador puro. */
+static inline uint64_t tsc_begin(void) {
+    uint32_t lo, hi;
+    __asm__ volatile("lfence\n\trdtsc" : "=a"(lo), "=d"(hi) : : "memory");
+    return ((uint64_t)hi << 32) | lo;
+}
+
+static inline uint64_t tsc_end(void) {
+    uint32_t lo, hi;
+    __asm__ volatile("rdtscp\n\tlfence" : "=a"(lo), "=d"(hi) : : "rcx", "memory");
+    return ((uint64_t)hi << 32) | lo;
+}
 
 static double elapsed_ms(struct timespec start, struct timespec end) {
     return (end.tv_sec - start.tv_sec) * 1000.0 +
@@ -82,7 +99,8 @@ static void write_output(const char *path, const float *arr, int n) {
  * tenga que parsear el binario de salida). */
 static void write_stats_summary(const char *path, int n, float sum,
                                  float mean, float var, float stddev,
-                                 float min, float max, double ms) {
+                                 float min, float max, double ms,
+                                 double cycles) {
     FILE *f = fopen(path, "w");
     if (!f) {
         fprintf(stderr, "Aviso: no se pudo crear el resumen '%s'\n", path);
@@ -96,6 +114,7 @@ static void write_stats_summary(const char *path, int n, float sum,
     fprintf(f, "min=%.9g\n", min);
     fprintf(f, "max=%.9g\n", max);
     fprintf(f, "kernel_ms=%.6f\n", ms);
+    fprintf(f, "kernel_cycles=%.0f\n", cycles);
     fclose(f);
 }
 
@@ -126,21 +145,35 @@ int main(int argc, char **argv) {
 
     float sum = 0.0f, mean = 0.0f, var = 0.0f, min = 0.0f, max = 0.0f;
     double total_ms = 0.0;
+    double total_cycles = 0.0;
     struct timespec t0, t1;
+
+    /* --- Calentamiento: la primera llamada incluye fallos de pagina del
+     * codigo y caches frias; con kernels de pocos microsegundos distorsiona
+     * la medicion. No se cronometra. --- */
+    for (int w = 0; w < WARMUP_RUNS; w++) {
+        sum = sum_array(in, n);
+        compute_stats(in, n, &mean, &var, &min, &max);
+        normalize_array(in, out, n, mean, sqrtf(var));
+    }
 
     /* --- Seccion medida: sum_array + compute_stats + normalize_array --- */
     for (int r = 0; r < reps; r++) {
         clock_gettime(CLOCK_MONOTONIC, &t0);
+        uint64_t c0 = tsc_begin();
 
         sum = sum_array(in, n);
         compute_stats(in, n, &mean, &var, &min, &max);
         float stddev_r = sqrtf(var);
         normalize_array(in, out, n, mean, stddev_r);
 
+        uint64_t c1 = tsc_end();
         clock_gettime(CLOCK_MONOTONIC, &t1);
         total_ms += elapsed_ms(t0, t1);
+        total_cycles += (double)(c1 - c0);
     }
     double avg_ms = total_ms / reps;
+    double avg_cycles = total_cycles / reps;
     float stddev = sqrtf(var);
 
     printf("N        = %d\n", n);
@@ -151,12 +184,14 @@ int main(int argc, char **argv) {
     printf("Minimo   = %.6f\n", min);
     printf("Maximo   = %.6f\n", max);
     printf("Tiempo promedio del kernel (%d rep.): %.6f ms\n", reps, avg_ms);
+    printf("Ciclos promedio del kernel (%d rep.): %.0f ciclos TSC\n", reps, avg_cycles);
 
     write_output(output_path, out, n);
 
     char summary_path[1024];
     snprintf(summary_path, sizeof(summary_path), "%s.stats.txt", output_path);
-    write_stats_summary(summary_path, n, sum, mean, var, stddev, min, max, avg_ms);
+    write_stats_summary(summary_path, n, sum, mean, var, stddev, min, max,
+                        avg_ms, avg_cycles);
 
     free(in);
     free(out);
