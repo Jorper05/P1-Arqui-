@@ -27,12 +27,20 @@
 sum_array: 
     xor     eax, eax           ; eax = i = 0 Hacer el xor consigo mismo es una forma rapida de poner un registro a cero
     xorps   xmm0, xmm0         ; xmm0 = acumulador = 0.0
+    xorps   xmm2, xmm2         ; compensacion del redondeo
 
 .sum_loop:
     cmp     eax, esi ; comparo i con n , n es el tamaño del arreglo
     jge     .sum_done ; Aquí termino si i >= n
     movss   xmm1, [rdi + rax*4] ; eb xmm1 guardo arr[i] (cada float ocupa 4 bytes, por eso multiplico i por 4)
-    addss   xmm0, xmm1 ; Voy sumando arr[i] al acumulador xmm0 = xmm0 + arr[i]
+    ; Kahan en float32: y = x-c; t = suma+y; c = (t-suma)-y.
+    subss   xmm1, xmm2
+    movss   xmm3, xmm0
+    addss   xmm3, xmm1
+    movss   xmm2, xmm3
+    subss   xmm2, xmm0
+    subss   xmm2, xmm1
+    movss   xmm0, xmm3
     inc     eax
     jmp     .sum_loop 
 
@@ -114,6 +122,7 @@ compute_stats:
     .var_array:
         xor     eax, eax  ; i =0
         xorps   xmm0, xmm0 ; acumulador = 0.0
+        xorps   xmm2, xmm2 ; compensacion de la suma de cuadrados
 
     .var_loop:
         cmp     eax, esi ; comparo i con n
@@ -121,7 +130,13 @@ compute_stats:
         movss   xmm1, [rdi + rax*4] ; arr[i]
         subss   xmm1, [rbx] ; arr[i] - mean
         mulss   xmm1, xmm1 ; (arr[i] - mean)^2
-        addss   xmm0, xmm1 ; acumulador += (arr[i] - mean)^2
+        subss   xmm1, xmm2
+        movss   xmm3, xmm0
+        addss   xmm3, xmm1
+        movss   xmm2, xmm3
+        subss   xmm2, xmm0
+        subss   xmm2, xmm1
+        movss   xmm0, xmm3
         inc     eax
         jmp     .var_loop
 
