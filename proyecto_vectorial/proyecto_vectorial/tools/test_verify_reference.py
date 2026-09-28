@@ -71,6 +71,25 @@ class VerificationTests(unittest.TestCase):
         self.assertTrue(verify.close(1e-7, 0, 1e-4, 1e-6))
         self.assertFalse(verify.close(float('inf'), float('inf'), 1e-4, 1e-6))
 
+    def test_formula_uses_own_parameters(self):
+        stats = dict(self.stats, mean=np.float32(2.5), stddev=np.float32(3))
+        output = (self.values - stats['mean']) / stats['stddev']
+        self.assertTrue(verify.normalization_check(self.values, stats, output))
+        output[-1] += np.float32(0.01)
+        self.assertFalse(verify.normalization_check(self.values, stats, output))
+
+    def test_formula_constant_and_invalid_sigma(self):
+        self.assertTrue(verify.normalization_check(self.values, dict(mean=0, stddev=0), self.values.copy()))
+        self.assertFalse(verify.normalization_check(self.values, dict(mean=0, stddev=-1), -self.values))
+
+    def test_diagnostic_does_not_hide_failure(self):
+        wrong = self.output.copy()
+        wrong[0] += 1
+        with contextlib.redirect_stdout(io.StringIO()) as log:
+            passed = verify.compare(self.values, {'Scalar': (self.stats, wrong)}, 1e-4, 1e-6, True)
+        self.assertFalse(passed)
+        self.assertIn('math.fsum', log.getvalue())
+
 
 if __name__ == '__main__':
     unittest.main()
