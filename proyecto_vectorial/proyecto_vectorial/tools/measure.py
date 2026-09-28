@@ -83,46 +83,66 @@ def benchmark(args, directory, work):
     run([sys.executable, ROOT / 'benchmark/analyze_results.py', directory])
 
 
-def perf(args, directory, work):
+def perf_command(args, report, command):
+    # Ciclos e instrucciones comparten grupo para que el IPC use el mismo intervalo.
+    return [args.perf, 'stat', '--no-big-num', '-x', ';', '-o', str(report),
+            '-e', '{cycles,instructions},cache-misses,cache-references',
+            '--', *map(str, command)]
+
+
+def check_perf(args, directory):
     if shutil.which(args.perf) is None:
-        raise RuntimeError('No se encontro perf. Instale linux-tools compatible con su kernel.')
-    rows = []
+        raise RuntimeError('No se encontro perf. Instale linux-tools compatible con su kernel '
+                           'o indique make perf PERF=/ruta/al/perf.')
+    (directory / 'perf_version.txt').write_text(run([args.perf, '--version']).stdout)
+    setting = Path('/proc/sys/kernel/perf_event_paranoid')
+    if setting.exists():
+        (directory / 'perf_event_paranoid.txt').write_text(setting.read_text())
+    report = directory / 'preflight.csv'
+    result = subprocess.run(perf_command(args, report, [sys.executable, '-c',
+                            'print(sum(range(1000000)))']), capture_output=True,
+                            text=True, timeout=60, env={**os.environ, 'LC_ALL': 'C'})
+    (directory / 'preflight.log').write_text(result.stdout + result.stderr)
+    if result.returncode:
+        raise RuntimeError('perf no puede acceder a los eventos solicitados. Revise preflight.log '
+                           'y preflight.csv: permisos, compatibilidad del ejecutable o PMU de la VM. '
+                           'No se modifico la configuracion del sistema.')
+    parse_perf_report(report)
+
+
+def parse_perf_report(report):
+    # El analizador tambien puede ejecutarse por separado sobre los CSV conservados.
+    if str(ROOT / 'benchmark') not in sys.path:
+        sys.path.insert(0, str(ROOT / 'benchmark'))
+    from analyze_perf import parse_counters
+    return parse_counters(report.read_text())
+
+
+def perf(args, directory, work):
+    commands = []
     for n in args.sizes:
         source = work / 'input.dat'
         generate(n, source, seed=args.seed)
         verify_size(source, n, directory)
         for version in ('scalar', 'vector'):
-            report = directory / f'{version}_{n}.csv'
-            result = subprocess.run(
-                [args.perf, 'stat', '-x', ';', '-o', str(report), '-e',
-                 'cycles,instructions,cache-misses,cache-references',
-                 str(ROOT / f'bin/norm_{version}'), str(source),
-                 str(work / f'{version}.dat'), str(args.reps)],
-                capture_output=True, text=True, timeout=600,
-                env={**os.environ, 'LC_ALL': 'C'})
-            (directory / f'{version}_{n}.log').write_text(result.stdout + result.stderr)
-            content = report.read_text() if report.exists() else ''
-            if result.returncode or not content or '<not supported>' in content or '<not counted>' in content:
-                raise RuntimeError(f'perf no pudo medir todos los eventos para {version}. '
-                                   f'Revise {directory} y los permisos de contadores del sistema. '
-                                   f'{result.stderr.strip()}')
-            counters = {}
-            for line in csv.reader(content.splitlines(), delimiter=';'):
-                if len(line) >= 3 and line[2].strip() in ('cycles', 'instructions', 'cache-misses', 'cache-references'):
-                    counters[line[2].strip()] = float(line[0].strip())
-            if len(counters) != 4 or any(not math.isfinite(v) or v < 0 for v in counters.values()):
-                raise ValueError('Contadores incompletos o invalidos')
-            cycles, refs = counters['cycles'], counters['cache-references']
-            rows.append([n, version, args.reps, cycles, counters['instructions'],
-                         counters['cache-misses'], refs,
-                         counters['instructions'] / cycles if cycles else '',
-                         100 * counters['cache-misses'] / refs if refs else ''])
-            print(f'Contadores: {report}', flush=True)
-    with (directory / 'perf_summary.csv').open('w', newline='') as stream:
-        writer = csv.writer(stream)
-        writer.writerow(['n', 'version', 'kernel_reps', 'cycles', 'instructions',
-                         'cache_misses', 'cache_references', 'ipc', 'cache_miss_percent'])
-        writer.writerows(rows)
+            sample(ROOT / f'bin/norm_{version}', source, work / f'{version}.dat')
+        for index in range(1, args.perf_runs + 1):
+            order = ('scalar', 'vector') if index % 2 else ('vector', 'scalar')
+            for version in order:
+                report = directory / f'{version}_{n}_{index}.csv'
+                command = perf_command(args, report, [ROOT / f'bin/norm_{version}',
+                                       source, work / f'{version}.dat', args.reps])
+                commands.append(command)
+                (directory / 'commands.json').write_text(json.dumps(commands, indent=2) + '\n')
+                result = subprocess.run(command, capture_output=True, text=True, timeout=600,
+                                        env={**os.environ, 'LC_ALL': 'C'})
+                report.with_suffix('.log').write_text(result.stdout + result.stderr)
+                if result.returncode:
+                    raise RuntimeError(f'perf fallo para {version}, N={n}, muestra={index}. '
+                                       f'Revise {report} y su .log; no se publicara un resumen.')
+                parse_perf_report(report)
+                print(f'Contadores: {report}', flush=True)
+    run([sys.executable, ROOT / 'benchmark/analyze_perf.py', directory])
 
 
 def main():
@@ -132,6 +152,8 @@ def main():
     parser.add_argument('--reps', type=positive, default=30)
     parser.add_argument('--seed', type=int, default=123)
     parser.add_argument('--perf', default='perf')
+    parser.add_argument('--perf-runs', type=positive, default=3,
+                        help='procesos independientes por version y tamano (solo perf)')
     parser.add_argument('--results-dir', type=Path)
     args = parser.parse_args()
     if args.mode == 'benchmark' and args.reps < 2:
@@ -149,7 +171,10 @@ def main():
             'utc': datetime.now(timezone.utc).isoformat(),
             'platform': platform.platform(), 'python': sys.version,
             'sizes': args.sizes, 'reps': args.reps, 'seed': args.seed,
-            'mode': args.mode, 'sample_scope': 'kernel_ms del driver; una repeticion por proceso',
+            'mode': args.mode, 'perf_runs': args.perf_runs,
+            'sample_scope': ('kernel_ms del driver; una repeticion por proceso'
+                             if args.mode == 'benchmark' else
+                             'contadores del proceso completo; reps iteraciones del kernel'),
             'standard_deviation': 'muestral (ddof=1)',
             'correctness': 'suite pequena y cada tamano; rtol=1e-4, atol=1e-6 solo referencia cero',
             'perf_scope': 'proceso completo, incluida E/S',
@@ -162,6 +187,8 @@ def main():
         for label, command in [('cpu', ['lscpu']), ('compiler', ['gcc', '--version'])]:
             if shutil.which(command[0]):
                 (directory / f'{label}.txt').write_text(run(command).stdout)
+        if args.mode == 'perf':
+            check_perf(args, directory)
         print('Verificando ambas versiones contra NumPy antes de medir...', flush=True)
         verification = subprocess.run([sys.executable, ROOT / 'tools/verify_reference.py', '--suite'],
                                       capture_output=True, text=True, timeout=600)
@@ -180,4 +207,3 @@ def main():
 
 if __name__ == '__main__':
     raise SystemExit(main())
-
