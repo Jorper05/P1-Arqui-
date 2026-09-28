@@ -9,8 +9,11 @@ PERF      ?= perf
 
 BENCH_SIZES ?= 1000 100000 1000000 50000000
 BENCH_REPS  ?= 30
-PERF_N      ?= 1000000
+# perf usa los mismos tamanos que el benchmark. PERF_REPS es el minimo de repeticiones
+# del kernel por proceso; tools/measure.py lo aumenta para N pequenos.
+PERF_SIZES  ?= $(BENCH_SIZES)
 PERF_REPS   ?= 30
+PERF_FLAGS  ?=
 PERF_RUNS   ?= 3
 SEED        ?= 123
 BENCH_RESULTS ?= benchmark/results
@@ -36,7 +39,7 @@ VECTOR_OBJ := $(OBJ_DIR)/stats_vector.o
 TEST_SCALAR_OBJ := $(OBJ_DIR)/test_sum_scalar.o
 TEST_VECTOR_OBJ := $(OBJ_DIR)/test_sum_vector.o
 
-.PHONY: all scalar vector test benchmark perf help clean dirs run-scalar run-vector test-sum
+.PHONY: all scalar vector test benchmark perf help clean distclean dirs run-scalar run-vector test-sum
 .PHONY: generate-inputs generate-inputs-large test-input test-input-large
 
 all: scalar vector
@@ -104,9 +107,13 @@ test-input:
 test-input-large:
 	$(PYTHON) tools/test_input.py --large
 
-# Limpieza de objetos y ejecutables
+# Limpieza de objetos y ejecutables (conserva output/ con los resultados medidos)
 clean:
-	rm -rf $(OBJ_DIR) $(BIN_DIR) output
+	rm -rf $(OBJ_DIR) $(BIN_DIR)
+
+# Ademas borra los resultados de benchmark y perf
+distclean: clean
+	rm -rf output
 
 # Verificacion completa contra NumPy y entre implementaciones
 .PHONY: test-reference
@@ -142,17 +149,19 @@ benchmark: all
 	$(PYTHON) tools/measure.py benchmark --sizes $(BENCH_SIZES) --reps $(BENCH_REPS) --seed $(SEED)
 
 perf: all
-	$(PYTHON) tools/measure.py perf --sizes $(PERF_N) --reps $(PERF_REPS) --seed $(SEED) --perf "$(PERF)" --perf-runs $(PERF_RUNS) --results-dir "$(PERF_RESULTS)"
+	$(PYTHON) tools/measure.py perf --sizes $(PERF_SIZES) --reps $(PERF_REPS) --seed $(SEED) --perf "$(PERF)" --perf-runs $(PERF_RUNS) --results-dir "$(PERF_RESULTS)" $(PERF_FLAGS)
 
 help:
 	@echo "make / make scalar / make vector: compilar"
 	@echo "make test: ejecutar todas las pruebas"
-	@echo "make benchmark: guardar tiempos y speedup en output/benchmark/"
-	@echo "make perf: guardar contadores y tabla en $(PERF_RESULTS)/run-*/"
-	@echo "make clean: eliminar obj/, bin/ y output/; conservar data/"
-	@echo "Variables: BENCH_SIZES, BENCH_REPS, PERF_N, PERF_REPS, PERF_RUNS, PERF_RESULTS, SEED, PYTHON, PERF"
+	@echo "make benchmark: guardar tiempos (ms y ciclos TSC), speedup y grafico en output/benchmark/"
+	@echo "make perf: guardar contadores y tabla (todos los tamanos) en $(PERF_RESULTS)/run-*/"
+	@echo "make test-perf: probar el analisis de benchmark y perf sin PMU ni ejecutables"
+	@echo "make clean: eliminar obj/ y bin/; conservar data/ y output/"
+	@echo "make distclean: clean y ademas eliminar output/"
+	@echo "Variables: BENCH_SIZES, BENCH_REPS, PERF_SIZES, PERF_REPS, PERF_RUNS, PERF_RESULTS, PERF_FLAGS, SEED, PYTHON, PERF"
 
 # Validacion del analisis sin requerir acceso a la PMU.
 .PHONY: test-perf
 test-perf:
-	$(PYTHON) -m unittest discover -s benchmark -p 'test_perf.py' -v
+	$(PYTHON) -m unittest discover -s benchmark -p 'test_*.py' -v
