@@ -33,6 +33,7 @@ ASM_SCALAR := asm/scalar/stats_scalar.asm
 ASM_VECTOR := asm/vector/stats_vector.asm
 
 DRIVER_OBJ := $(OBJ_DIR)/driver.o
+VECTOR_DRIVER_OBJ := $(OBJ_DIR)/driver_vector.o
 SCALAR_OBJ := $(OBJ_DIR)/stats_scalar.o
 VECTOR_OBJ := $(OBJ_DIR)/stats_vector.o
 
@@ -55,6 +56,9 @@ dirs:
 $(DRIVER_OBJ): $(SRC_DIR)/driver.c $(INC_DIR)/stats.h | dirs
 	$(CC) $(CFLAGS) -I$(INC_DIR) -c $< -o $@
 
+$(VECTOR_DRIVER_OBJ): $(SRC_DIR)/driver.c $(INC_DIR)/stats.h | dirs
+	$(CC) $(CFLAGS) -DREQUIRE_AVX2 -I$(INC_DIR) -c $< -o $@
+
 # Ensamblado de los kernels
 $(SCALAR_OBJ): $(ASM_SCALAR) | dirs
 	$(NASM) $(NASMFLAGS) $< -o $@
@@ -66,7 +70,7 @@ $(VECTOR_OBJ): $(ASM_VECTOR) | dirs
 $(BIN_DIR)/norm_scalar: $(DRIVER_OBJ) $(SCALAR_OBJ) | dirs
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-$(BIN_DIR)/norm_vector: $(DRIVER_OBJ) $(VECTOR_OBJ) | dirs
+$(BIN_DIR)/norm_vector: $(VECTOR_DRIVER_OBJ) $(VECTOR_OBJ) | dirs
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # Ejecucion del programa principal
@@ -146,7 +150,7 @@ test: test-input test-verifier test-sum test-reference test-integration
 
 # Las mediciones usan el tiempo del kernel publicado por el driver.
 benchmark: all
-	$(PYTHON) tools/measure.py benchmark --sizes $(BENCH_SIZES) --reps $(BENCH_REPS) --seed $(SEED)
+	$(PYTHON) tools/measure.py benchmark --sizes $(BENCH_SIZES) --reps $(BENCH_REPS) --seed $(SEED) --results-dir "$(BENCH_RESULTS)"
 
 perf: all
 	$(PYTHON) tools/measure.py perf --sizes $(PERF_SIZES) --reps $(PERF_REPS) --seed $(SEED) --perf "$(PERF)" --perf-runs $(PERF_RUNS) --results-dir "$(PERF_RESULTS)" $(PERF_FLAGS)
@@ -154,12 +158,12 @@ perf: all
 help:
 	@echo "make / make scalar / make vector: compilar"
 	@echo "make test: ejecutar todas las pruebas"
-	@echo "make benchmark: guardar tiempos (ms y ciclos TSC), speedup y grafico en output/benchmark/"
+	@echo "make benchmark: guardar tiempos (ms y ciclos TSC), speedup y grafico en $(BENCH_RESULTS)/run-*/"
 	@echo "make perf: guardar contadores y tabla (todos los tamanos) en $(PERF_RESULTS)/run-*/"
 	@echo "make test-perf: probar el analisis de benchmark y perf sin PMU ni ejecutables"
 	@echo "make clean: eliminar obj/ y bin/; conservar data/ y output/"
 	@echo "make distclean: clean y ademas eliminar output/"
-	@echo "Variables: BENCH_SIZES, BENCH_REPS, PERF_SIZES, PERF_REPS, PERF_RUNS, PERF_RESULTS, PERF_FLAGS, SEED, PYTHON, PERF"
+	@echo "Variables: BENCH_SIZES, BENCH_REPS, BENCH_RESULTS, PERF_SIZES, PERF_REPS, PERF_RUNS, PERF_RESULTS, PERF_FLAGS, SEED, PYTHON, PERF"
 
 # Validacion del analisis sin requerir acceso a la PMU.
 .PHONY: test-perf
