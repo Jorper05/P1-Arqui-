@@ -11,12 +11,13 @@ EVENTS = ('cycles', 'instructions', 'cache-misses', 'cache-references')
 
 
 def parse_counters(text):
-    """Lee perf stat -x ';' con LC_ALL=C y eventos sin modificadores."""
+    """Lee perf stat -x ';' con LC_ALL=C; acepta sufijos como :u."""
     counters = {}
     for fields in csv.reader(text.splitlines(), delimiter=';'):
         if len(fields) < 3 or fields[0].lstrip().startswith('#'):
             continue
-        event = fields[2].strip()
+        # perf puede agregar modificadores, por ejemplo cycles:u.
+        event = fields[2].strip().split(':', 1)[0]
         if event not in EVENTS:
             continue
         if event in counters:
