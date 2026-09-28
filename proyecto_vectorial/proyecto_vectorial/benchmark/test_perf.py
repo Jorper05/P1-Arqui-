@@ -91,6 +91,22 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(analyze(self.path)[0][13], '')
         self.assertIn('N/D', (self.path / 'perf_report.md').read_text())
 
+    def test_per_size_reps_and_per_element_columns(self):
+        # 1000 elementos * 200 repeticiones = 200000 elementos por proceso
+        self.metadata['perf_reps'] = {'1000': 200}
+        self.write_metadata()
+        row = analyze(self.path)[0]
+        self.assertEqual(row[3], 200)
+        self.assertAlmostEqual(row[15], 200 / 200000)          # ciclos medios / (N*reps)
+        self.assertAlmostEqual(row[16], 550 / 200000)          # instrucciones medias (200 y 900) / (N*reps)
+        self.assertAlmostEqual(row[17], 10 / 200000)           # misses medios / (N*reps)
+        report = (self.path / 'perf_report.md').read_text()
+        self.assertIn('Ciclos/elem', report)
+        self.assertIn('| 1000 | scalar | 2 | 200 |', report)
+
+    def test_legacy_metadata_without_perf_reps(self):
+        self.assertEqual(analyze(self.path)[0][3], 30)
+
     def test_single_sample_no_std(self):
         self.metadata['perf_runs'] = 1
         self.write_metadata()
@@ -133,7 +149,14 @@ class RunnerTests(unittest.TestCase):
             self.assertEqual(order[:4], ['scalar_16_1.csv', 'vector_16_1.csv',
                                         'vector_16_2.csv', 'scalar_16_2.csv'])
             self.assertTrue((directory / 'perf_summary.csv').exists())
-            self.assertEqual(len(json.loads((directory / 'commands.json').read_text())), 8)
+            commands = json.loads((directory / 'commands.json').read_text())
+            self.assertEqual(len(commands), 8)
+            # Repeticiones escaladas por tamano: N pequeno se limita a PERF_MAX_REPS.
+            self.assertEqual({c[-1] for c in commands},
+                             {str(measure.perf_reps(16, 30)), str(measure.perf_reps(1000, 30))})
+            self.assertEqual(measure.perf_reps(16, 30), measure.PERF_MAX_REPS)
+            self.assertEqual(measure.perf_reps(1000, 30), 200000)
+            self.assertEqual(measure.perf_reps(50_000_000, 30), 30)  # nunca por debajo de --reps
 
 
 if __name__ == '__main__':
