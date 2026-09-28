@@ -24,27 +24,31 @@
 ; acumulador, condicion de salida) antes de escribir compute_stats
 ; y normalize_array.
 ; ---------------------------------------------------------------
-sum_array: 
-    xor     eax, eax           ; eax = i = 0 Hacer el xor consigo mismo es una forma rapida de poner un registro a cero
-    xorps   xmm0, xmm0         ; xmm0 = acumulador = 0.0
-    xorps   xmm2, xmm2         ; compensacion del redondeo
-
+sum_array:
+    xor     eax, eax
+    xorps   xmm0, xmm0         ; suma principal
+    xorps   xmm2, xmm2         ; errores de redondeo acumulados
 .sum_loop:
-    cmp     eax, esi ; comparo i con n , n es el tamaño del arreglo
-    jge     .sum_done ; Aquí termino si i >= n
-    movss   xmm1, [rdi + rax*4] ; eb xmm1 guardo arr[i] (cada float ocupa 4 bytes, por eso multiplico i por 4)
-    ; Kahan en float32: y = x-c; t = suma+y; c = (t-suma)-y.
-    subss   xmm1, xmm2
-    movss   xmm3, xmm0
-    addss   xmm3, xmm1
-    movss   xmm2, xmm3
-    subss   xmm2, xmm0
-    subss   xmm2, xmm1
-    movss   xmm0, xmm3
+    cmp     eax, esi
+    jge     .sum_done
+    movss   xmm1, [rdi + rax*4]
+    ; TwoSum: recuperar el residuo de suma+x, incluso con cancelacion.
+    movaps  xmm3, xmm0
+    addss   xmm3, xmm1         ; t = suma+x
+    movaps  xmm4, xmm3
+    subss   xmm4, xmm0         ; b = t-suma
+    movaps  xmm5, xmm3
+    subss   xmm5, xmm4
+    movaps  xmm6, xmm0
+    subss   xmm6, xmm5
+    subss   xmm1, xmm4
+    addss   xmm6, xmm1         ; residuo = (suma-(t-b))+(x-b)
+    addss   xmm2, xmm6
+    movaps  xmm0, xmm3
     inc     eax
-    jmp     .sum_loop 
-
+    jmp     .sum_loop
 .sum_done:
+    addss   xmm0, xmm2
     ret
 
 ; ---------------------------------------------------------------
