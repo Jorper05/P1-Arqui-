@@ -19,6 +19,16 @@ from gen_input import generate, MAX_N
 
 ROOT = Path(__file__).resolve().parents[1]
 
+# perf cuenta el proceso completo (arranque, lectura del archivo, memset). Para que
+# el kernel domine esos contadores, cada proceso repite el kernel hasta procesar
+# al menos PERF_MIN_ELEMENTS elementos (N * repeticiones), sin bajar de --reps.
+PERF_MIN_ELEMENTS = 200_000_000
+PERF_MAX_REPS = 1_000_000
+
+
+def perf_reps(n, minimum):
+    return min(PERF_MAX_REPS, max(minimum, math.ceil(PERF_MIN_ELEMENTS / n)))
+
 
 def positive(value):
     number = int(value)
@@ -42,9 +52,12 @@ def sample(binary, source, destination):
     run([binary, source, destination, '1'])
     fields = dict(line.split('=', 1) for line in summary.read_text().splitlines())
     elapsed = float(fields['kernel_ms'])
-    if not math.isfinite(elapsed) or elapsed <= 0:
-        raise ValueError('El tiempo del kernel debe ser finito y mayor que cero')
-    return elapsed
+    if 'kernel_cycles' not in fields:
+        raise ValueError('El driver no reporta kernel_cycles; recompile con make clean && make')
+    cycles = float(fields['kernel_cycles'])
+    if not all(math.isfinite(v) and v > 0 for v in (elapsed, cycles)):
+        raise ValueError('El tiempo y los ciclos del kernel deben ser finitos y mayores que cero')
+    return elapsed, cycles
 
 
 def verify_size(source, n, directory):
@@ -61,24 +74,28 @@ def benchmark(args, directory, work):
     # El CSV final se publica solo cuando todas las mediciones terminan.
     with (directory / 'samples.csv').open('w', newline='') as stream:
         writer = csv.writer(stream)
-        writer.writerow(['n', 'version', 'sample', 'kernel_ms'])
+        writer.writerow(['n', 'version', 'sample', 'kernel_ms', 'kernel_cycles'])
         for n in args.sizes:
             source = work / 'input.dat'
             generate(n, source, seed=args.seed)
             verify_size(source, n, directory)
             times = {'scalar': [], 'vector': []}
+            cycles = {'scalar': [], 'vector': []}
             for version in times:
                 sample(ROOT / f'bin/norm_{version}', source, work / f'{version}.dat')
             for i in range(args.reps):
                 # Alternar el orden reduce el sesgo de ejecutar siempre uno primero.
                 order = ('scalar', 'vector') if i % 2 == 0 else ('vector', 'scalar')
                 for version in order:
-                    elapsed = sample(ROOT / f'bin/norm_{version}', source, work / f'{version}.dat')
+                    elapsed, ticks = sample(ROOT / f'bin/norm_{version}', source, work / f'{version}.dat')
                     times[version].append(elapsed)
-                    writer.writerow([n, version, i + 1, elapsed])
+                    cycles[version].append(ticks)
+                    writer.writerow([n, version, i + 1, elapsed, ticks])
                 stream.flush()
             scalar, vector = (statistics.mean(times[v]) for v in ('scalar', 'vector'))
-            print(f'N={n}: escalar={scalar:.6f} ms, AVX2={vector:.6f} ms, '
+            c_scalar, c_vector = (statistics.mean(cycles[v]) for v in ('scalar', 'vector'))
+            print(f'N={n}: escalar={scalar:.6f} ms ({c_scalar:.0f} ciclos TSC), '
+                  f'AVX2={vector:.6f} ms ({c_vector:.0f} ciclos TSC), '
                   f'speedup={scalar / vector:.3f}', flush=True)
     run([sys.executable, ROOT / 'benchmark/analyze_results.py', directory])
 
@@ -126,12 +143,14 @@ def perf(args, directory, work):
         verify_size(source, n, directory)
         for version in ('scalar', 'vector'):
             sample(ROOT / f'bin/norm_{version}', source, work / f'{version}.dat')
+        reps = perf_reps(n, args.reps)
+        print(f'perf N={n}: {reps} repeticiones del kernel por proceso', flush=True)
         for index in range(1, args.perf_runs + 1):
             order = ('scalar', 'vector') if index % 2 else ('vector', 'scalar')
             for version in order:
                 report = directory / f'{version}_{n}_{index}.csv'
                 command = perf_command(args, report, [ROOT / f'bin/norm_{version}',
-                                       source, work / f'{version}.dat', args.reps])
+                                       source, work / f'{version}.dat', reps])
                 commands.append(command)
                 (directory / 'commands.json').write_text(json.dumps(commands, indent=2) + '\n')
                 result = subprocess.run(command, capture_output=True, text=True, timeout=600,
@@ -172,12 +191,16 @@ def main():
             'platform': platform.platform(), 'python': sys.version,
             'sizes': args.sizes, 'reps': args.reps, 'seed': args.seed,
             'mode': args.mode, 'perf_runs': args.perf_runs,
-            'sample_scope': ('kernel_ms del driver; una repeticion por proceso'
+            'sample_scope': ('kernel_ms y kernel_cycles (TSC) del driver; una repeticion '
+                             'cronometrada por proceso, tras una llamada de calentamiento'
                              if args.mode == 'benchmark' else
-                             'contadores del proceso completo; reps iteraciones del kernel'),
+                             'contadores del proceso completo; repeticiones del kernel por '
+                             'tamano indicadas en perf_reps'),
             'standard_deviation': 'muestral (ddof=1)',
             'correctness': 'suite pequena y cada tamano; rtol=1e-4, atol=1e-6 solo referencia cero',
-            'perf_scope': 'proceso completo, incluida E/S',
+            'perf_scope': ('proceso completo, incluida E/S; las repeticiones se escalan por tamano '
+                           f'(N*reps >= {PERF_MIN_ELEMENTS}) para que el kernel domine los contadores'),
+            'perf_reps': {str(n): perf_reps(n, args.reps) for n in args.sizes},
             'binaries_sha256': {v: hashlib.sha256((ROOT / f'bin/norm_{v}').read_bytes()).hexdigest()
                                 for v in ('scalar', 'vector')},
         }
