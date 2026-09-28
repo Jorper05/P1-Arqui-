@@ -143,14 +143,14 @@ benchmark: all
 
 perf: all
 	$(PYTHON) tools/measure.py perf --sizes $(PERF_N) --reps $(PERF_REPS) --seed $(SEED) --perf "$(PERF)" --perf-runs $(PERF_RUNS) --results-dir "$(PERF_RESULTS)"
+
 help:
 	@echo "make / make scalar / make vector: compilar"
 	@echo "make test: ejecutar todas las pruebas"
 	@echo "make benchmark: guardar tiempos y speedup en output/benchmark/"
-	@echo "make perf: guardar contadores en output/perf/"
+	@echo "make perf: guardar contadores y tabla en $(PERF_RESULTS)/run-*/"
 	@echo "make clean: eliminar obj/, bin/ y output/; conservar data/"
-	@echo "Variables: BENCH_SIZES, BENCH_REPS, PERF_N, PERF_REPS, PERF_RUNS, 
-PERF_RESULTS, SEED, PYTHON, PERF"
+	@echo "Variables: BENCH_SIZES, BENCH_REPS, PERF_N, PERF_REPS, PERF_RUNS, PERF_RESULTS, SEED, PYTHON, PERF"
 
 # Validacion del analisis sin requerir acceso a la PMU.
 .PHONY: test-perf
