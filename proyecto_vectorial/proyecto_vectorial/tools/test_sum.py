@@ -5,6 +5,7 @@ import struct
 import subprocess
 import sys
 import math
+import tempfile
 import numpy as np
 
 CASES = [0, 1, 7, 8, 15, 16]
@@ -90,6 +91,22 @@ def main():
             print(f"{n:>4} ERROR: {detalle}")
             ok = False
         general = general and ok
+    # Cancelacion en un carril, entre carriles y con remanente escalar.
+    with tempfile.TemporaryDirectory(prefix='sum-cancel-') as directory:
+        cases = ([1e8, 1, -1e8],
+                 [1e8] * 8 + [1] * 8 + [-1e8] * 8,
+                 [1e8] * 8 + [1] * 8 + [-1e8] * 8 + [3])
+        for index, values in enumerate(cases):
+            data = np.asarray(values, dtype='<f4')
+            path = os.path.join(directory, f'cancel_{index}.dat')
+            with open(path, 'wb') as stream:
+                stream.write(struct.pack('<i', len(data)) + data.tobytes())
+            expected = float(np.float32(math.fsum(map(float, data))))
+            esc, avx = ejecutar(scalar, path), ejecutar(vector, path)
+            ok = esc == avx == expected
+            general &= ok
+            print(f'Cancelacion N={len(data)}: escalar={esc}, AVX2={avx}, esperado={expected}: '
+                  f'{"PASA" if ok else "FALLA"}')
     print()
     if general:
         print("TODAS LAS PRUEBAS PASAN")
