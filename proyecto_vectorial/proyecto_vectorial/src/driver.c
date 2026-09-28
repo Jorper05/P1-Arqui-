@@ -7,6 +7,7 @@
 #include <time.h>
 #include <errno.h>
 #include <limits.h>
+#include <cpuid.h>
 
 #include "stats.h"
 
@@ -37,6 +38,17 @@ static int timestamp(struct timespec *t) {
     if (clock_gettime(CLOCK_MONOTONIC, t) == 0) return 1;
     perror("Error: clock_gettime");
     return 0;
+}
+
+/* Lectura serializada del TSC. Incluye el costo de las barreras de medicion.
+ * Los ticks TSC no equivalen a los ciclos de nucleo contados por perf. */
+static uint64_t read_tsc(void) {
+    unsigned int a, b, c, d, lo, hi;
+    __cpuid(0, a, b, c, d);
+    __asm__ volatile ("rdtsc" : "=a" (lo), "=d" (hi) : : "memory");
+    __cpuid(0, a, b, c, d);
+    __asm__ volatile ("" : : : "memory");
+    return ((uint64_t)hi << 32) | lo;
 }
 
 static float *alloc_aligned_floats(size_t count) {
@@ -123,7 +135,7 @@ static int write_output(const char *path, const float *arr, int n) {
 static int write_stats_summary(const char *path, int n, float sum,
                                float mean, float var, float stddev,
                                float min, float max, const timing times[4],
-                               int reps) {
+                               const timing cycles[4], int reps) {
     FILE *f = fopen(path, "w");
     if (!f) {
         fprintf(stderr, "Error: no se pudo crear el resumen '%s': %s\n", path, strerror(errno));
@@ -138,6 +150,9 @@ static int write_stats_summary(const char *path, int n, float sum,
         if (i < 3) ok = fprintf(f, "%s_ms=%.9f\n", names[i], times[i].mean) >= 0;
         if (ok) ok = fprintf(f, "%s_stddev_ms=%.9f\n", names[i],
                              time_stddev(&times[i], reps)) >= 0;
+        if (ok) ok = fprintf(f, "%s_cycles=%.9f\n%s_stddev_cycles=%.9f\n",
+                             names[i], cycles[i].mean, names[i],
+                             time_stddev(&cycles[i], reps)) >= 0;
     }
     if (fclose(f) != 0) ok = 0;
     if (!ok) fprintf(stderr, "Error: escritura o cierre incompleto del resumen '%s'.\n", path);
@@ -204,12 +219,17 @@ int main(int argc, char **argv) {
     float sum = 0.0f, mean = 0.0f, var = 0.0f, min = 0.0f, max = 0.0f;
     float stddev = 0.0f;
     timing times[4] = {{0}};
+    timing cycles[4] = {{0}};
     for (int r = 0; r < reps; ++r) {
         struct timespec t0, t1, t2, t3;
         if (!timestamp(&t0)) goto done;
+        uint64_t c0 = read_tsc();
         sum = sum_array(in, n);
+        uint64_t c1 = read_tsc();
         if (!timestamp(&t1)) goto done;
+        uint64_t c2 = read_tsc();
         compute_stats(in, n, &mean, &var, &min, &max);
+        uint64_t c3 = read_tsc();
         if (!timestamp(&t2)) goto done;
         double sum_ms = elapsed_ms(t0, t1);
         double stats_ms = elapsed_ms(t1, t2);
@@ -221,9 +241,22 @@ int main(int argc, char **argv) {
         }
         stddev = sqrtf(var);
         if (!timestamp(&t2)) goto done;
+        uint64_t c4 = read_tsc();
         normalize_array(in, out, n, mean, stddev);
+        uint64_t c5 = read_tsc();
         if (!timestamp(&t3)) goto done;
         double norm_ms = elapsed_ms(t2, t3);
+        if (c1 <= c0 || c3 <= c2 || c5 <= c4) {
+            fprintf(stderr, "Error: lectura TSC no monotona; no se publican mediciones.\n");
+            goto done;
+        }
+        double sum_cycles = (double)(c1 - c0);
+        double stats_cycles = (double)(c3 - c2);
+        double norm_cycles = (double)(c5 - c4);
+        record_time(&cycles[0], sum_cycles, r + 1);
+        record_time(&cycles[1], stats_cycles, r + 1);
+        record_time(&cycles[2], norm_cycles, r + 1);
+        record_time(&cycles[3], sum_cycles + stats_cycles + norm_cycles, r + 1);
         record_time(&times[0], sum_ms, r + 1);
         record_time(&times[1], stats_ms, r + 1);
         record_time(&times[2], norm_ms, r + 1);
@@ -239,7 +272,7 @@ int main(int argc, char **argv) {
     }
     if (!write_output(argv[2], out, n)) goto done;
     if (!write_stats_summary(summary_path, n, sum, mean, var, stddev,
-                             min, max, times, reps)) goto done;
+                             min, max, times, cycles, reps)) goto done;
 
     printf("N        = %d\nSuma     = %.6f\nMedia    = %.6f\n"
            "Varianza = %.6f\nStdDev   = %.6f\nMinimo   = %.6f\nMaximo   = %.6f\n",
@@ -250,6 +283,8 @@ int main(int argc, char **argv) {
                times[i].mean, time_stddev(&times[i], reps));
     printf("Tiempo promedio del kernel (%d rep.): %.6f ms\n", reps, times[3].mean);
     printf("Desviacion muestral del kernel: %.9f ms\n", time_stddev(&times[3], reps));
+    printf("Ciclos TSC promedio del kernel: %.3f (desviacion muestral: %.3f)\n",
+           cycles[3].mean, time_stddev(&cycles[3], reps));
     result = EXIT_SUCCESS;
 done:
     free(summary_path);
