@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verifica estadisticos y normalizacion float32 contra NumPy y entre versiones."""
 import argparse
+import math
 from pathlib import Path
 import struct
 import subprocess
@@ -66,7 +67,29 @@ def close(actual, expected, rtol, atol):
     return bool(np.all(np.isfinite(actual) & np.isfinite(expected) & (np.abs(actual - expected) <= limit)))
 
 
-def compare(values, results, rtol, atol):
+def normalization_check(values, stats, output):
+    """Comprueba la formula float32 con los parametros del propio ejecutable."""
+    mean, sigma = np.float32(stats['mean']), np.float32(stats['stddev'])
+    if not np.isfinite(mean) or not np.isfinite(sigma) or sigma < 0:
+        return False
+    with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
+        expected = values.copy() if sigma == 0 else (values - mean) / sigma
+    return bool(np.all(np.isfinite(output)) and np.all(np.isfinite(expected))
+                and np.array_equal(output, expected))
+
+
+def precision_diagnostic(values, results, ref):
+    """Referencia de diagnostico; no cambia el criterio de aceptacion."""
+    total = math.fsum(map(float, values))
+    mean = total / len(values)
+    print('  DIAGNOSTICO: suma con math.fsum; no sustituye la referencia NumPy float32')
+    print(f'  suma={total:.17g}, media={mean:.17g}')
+    for name, stats in [('NumPy', ref)] + [(name, pair[0]) for name, pair in results.items()]:
+        actual = float(np.float32(stats['mean']))
+        print(f'  {name}: media={actual:.17g}, error absoluto de media={abs(actual-mean):.9g}')
+
+
+def compare(values, results, rtol, atol, diagnose=False):
     ref, normalized = reference_stats(values)
     ok = True
     for group, fields in (('sum_array', ('sum',)),
@@ -89,7 +112,10 @@ def compare(values, results, rtol, atol):
         a, b = list(results.values())
         pairs.append(('Scalar/AVX2', a[1], b[1]))
     for name, output, expected in pairs:
-        if not close(output, expected, rtol, atol):
+        pair_ok = close(output, expected, rtol, atol)
+        print(f'[{"PASS" if pair_ok else "FAIL"}] normalizacion: {name}' +
+              (' entre versiones' if name == 'Scalar/AVX2' else ' contra NumPy'))
+        if not pair_ok:
             array_ok = False
             if output.shape == expected.shape:
                 limit = np.where(expected == 0, atol, rtol * np.abs(expected.astype(np.float64)))
@@ -99,7 +125,14 @@ def compare(values, results, rtol, atol):
             else:
                 print(f'  {name}: longitud de salida incorrecta')
     print(f'[{"PASS" if array_ok else "FAIL"}] normalize_array')
-    return bool(ok and array_ok)
+    formula_ok = True
+    for name, (stats, output) in results.items():
+        matched = normalization_check(values, stats, output)
+        formula_ok &= matched
+        print(f'[{"PASS" if matched else "FAIL"}] {name}: formula con media/stddev propios')
+    if diagnose:
+        precision_diagnostic(values, results, ref)
+    return bool(ok and array_ok and formula_ok)
 
 
 def load_result(summary, output, n):
@@ -110,7 +143,7 @@ def load_result(summary, output, n):
     return stats, values
 
 
-def run_case(path, scalar, vector, rtol, atol):
+def run_case(path, scalar, vector, rtol, atol, diagnose=False):
     n, values = read_input(path)
     print(f'\nCaso: {Path(path).name}, N={n}')
     results = {}
@@ -129,7 +162,7 @@ def run_case(path, scalar, vector, rtol, atol):
             if run.returncode != 0:
                 raise ValueError(f'{name}: codigo={run.returncode}, {run.stderr.strip()}')
             results[name] = load_result(str(output) + '.stats.txt', output, n)
-    return empty_ok if n == 0 else compare(values, results, rtol, atol)
+    return empty_ok if n == 0 else compare(values, results, rtol, atol, diagnose)
 
 
 def main():
@@ -139,6 +172,7 @@ def main():
     parser.add_argument('tolerance', nargs='?', type=float)
     parser.add_argument('--output', type=Path, help='Binario asociado al resumen; se infiere quitando .stats.txt')
     parser.add_argument('--suite', action='store_true', help='Generar y verificar casos reproducibles')
+    parser.add_argument('--diagnose', action='store_true', help='Mostrar error de la media frente a math.fsum sin cambiar tolerancias')
     parser.add_argument('--scalar', type=Path, default=ROOT / 'bin/norm_scalar')
     parser.add_argument('--vector', type=Path, default=ROOT / 'bin/norm_vector')
     parser.add_argument('--rtol', type=float, default=1e-4)
@@ -157,7 +191,7 @@ def main():
             n, values = read_input(args.input)
             output = args.output or Path(str(args.summary).removesuffix('.stats.txt'))
             result = load_result(args.summary, output, n)
-            failures = int(not compare(values, {'Obtenido': result}, rtol, args.atol))
+            failures = int(not compare(values, {'Obtenido': result}, rtol, args.atol, args.diagnose))
         else:
             with tempfile.TemporaryDirectory(prefix='verify-inputs-') as directory:
                 paths = [args.input] if args.input else []
@@ -174,7 +208,7 @@ def main():
                         paths.append(path)
                 for path in paths:
                     try:
-                        failures += not run_case(path, args.scalar.resolve(), args.vector.resolve(), rtol, args.atol)
+                        failures += not run_case(path, args.scalar.resolve(), args.vector.resolve(), rtol, args.atol, args.diagnose)
                     except (OSError, ValueError, FloatingPointError, subprocess.TimeoutExpired) as exc:
                         failures += 1
                         print(f'[FAIL] {path.name}: {exc}')
