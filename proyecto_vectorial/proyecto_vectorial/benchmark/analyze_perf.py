@@ -49,12 +49,17 @@ def analyze(directory):
         raise ValueError('La ejecucion fallo; no se publican resultados parciales')
     metadata = json.loads((directory / 'metadata.json').read_text())
     sizes, runs, reps = metadata['sizes'], metadata['perf_runs'], metadata['reps']
+    # Cada tamano puede usar mas repeticiones (perf_reps); los datos antiguos usan 'reps'.
+    per_size = {int(k): v for k, v in metadata.get('perf_reps', {}).items()}
     if metadata['mode'] != 'perf' or not sizes or len(set(sizes)) != len(sizes):
         raise ValueError('Metadatos incompatibles')
     if runs < 1 or reps < 1 or any(n < 1 for n in sizes):
         raise ValueError('Tamanos y repeticiones deben ser positivos')
     samples, summaries = [], []
     for n in sizes:
+        reps = per_size.get(n, metadata['reps'])
+        if reps < 1:
+            raise ValueError('Tamanos y repeticiones deben ser positivos')
         for version in ('scalar', 'vector'):
             group = []
             for index in range(1, runs + 1):
@@ -71,10 +76,12 @@ def analyze(directory):
             deviations = [statistics.stdev(row[col] for row in group) if runs > 1 else ''
                           for col in range(4, 8)]
             active = [row[10] for row in group if row[10] != '']
+            work = n * reps  # elementos procesados por proceso (una pasada del kernel = N)
             summaries.append([n, version, runs, reps, *means, *deviations,
                               means[1] / means[0],
                               100 * means[2] / means[3] if means[3] else '',
-                              min(active) if active else ''])
+                              min(active) if active else '',
+                              means[0] / work, means[1] / work, means[2] / work])
     # Validar todos los pares antes de escribir los resumenes.
     for name, header, rows in [
         ('perf_samples.csv', ['n', 'version', 'sample', 'kernel_reps', 'cycles',
@@ -83,7 +90,8 @@ def analyze(directory):
         ('perf_summary.csv', ['n', 'version', 'samples', 'kernel_reps', 'cycles_mean',
          'instructions_mean', 'cache_misses_mean', 'cache_references_mean',
          'cycles_std', 'instructions_std', 'cache_misses_std', 'cache_references_std',
-         'ipc', 'cache_miss_percent', 'min_running_percent'], summaries),
+         'ipc', 'cache_miss_percent', 'min_running_percent', 'cycles_per_element',
+         'instructions_per_element', 'cache_misses_per_element'], summaries),
     ]:
         with (directory / name).open('w', newline='') as stream:
             writer = csv.writer(stream)
@@ -91,17 +99,20 @@ def analyze(directory):
             writer.writerows(rows)
     lines = ['# Comparacion de contadores de hardware', '',
              'Alcance: proceso completo, incluida lectura, escritura, asignacion de memoria y driver.',
-             'Los contadores no representan exclusivamente las funciones NASM.', '',
+             'Los contadores no representan exclusivamente las funciones NASM; para que el kernel',
+             'domine, cada proceso repite el kernel (columna Kernel reps, escalada segun N).', '',
              'IPC = suma(instrucciones) / suma(ciclos).',
              'Fallos (%) = 100 * suma(cache-misses) / suma(cache-references).',
              'Los conteos son promedios por proceso; cada proceso repite el kernel segun kernel_reps.',
-             'La desviacion estandar muestral se incluye en perf_summary.csv; con una muestra queda vacia.', '',
-             '| N | Version | Muestras | Kernel reps | Ciclos | Instrucciones | IPC | Cache misses | Fallos (%) | Activo minimo (%) |',
-             '|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|']
+             'La desviacion estandar muestral se incluye en perf_summary.csv; con una muestra queda vacia.',
+             'Por elemento = contador / (N * Kernel reps): una llamada al kernel completo procesa N elementos.', '',
+             '| N | Version | Muestras | Kernel reps | Ciclos | Instrucciones | IPC | Cache misses | Fallos (%) | Activo minimo (%) | Ciclos/elem | Instr/elem | Misses/elem |',
+             '|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
     for r in summaries:
         rate = f'{r[13]:.4f}' if r[13] != '' else 'N/D'
         active = f'{r[14]:.2f}' if r[14] != '' else 'N/D'
-        lines.append(f'| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]:.2f} | {r[5]:.2f} | {r[12]:.4f} | {r[6]:.2f} | {rate} | {active} |')
+        lines.append(f'| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]:.2f} | {r[5]:.2f} | {r[12]:.4f} | {r[6]:.2f} | {rate} | {active} '
+                     f'| {r[15]:.3f} | {r[16]:.3f} | {r[17]:.5f} |')
     lines += ['', 'Un porcentaje activo menor que 100 indica multiplexacion: perf escala los conteos.',
               'Un denominador de referencias cero produce N/D, no una tasa de cero.',
               'El significado de cache-references/cache-misses depende de la CPU y su PMU;',
