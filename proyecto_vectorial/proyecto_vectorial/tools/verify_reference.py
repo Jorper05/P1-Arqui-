@@ -1,145 +1,230 @@
 #!/usr/bin/env python3
-"""Comprueba que el verificador detecta resultados incorrectos y archivos invalidos."""
-import contextlib
-import io
+"""Verifica estadisticos y normalizacion float32 contra NumPy y entre versiones."""
+import argparse
+import math
 from pathlib import Path
 import struct
+import subprocess
 import tempfile
-import unittest
 
 import numpy as np
-import verify_reference as verify
+
+from gen_input import generate, SMALL
+
+ROOT = Path(__file__).resolve().parents[1]
+FIELDS = ('sum', 'mean', 'var', 'stddev', 'min', 'max')
 
 
-class VerificationTests(unittest.TestCase):
-    def setUp(self):
-        self.values = np.arange(1, 16, dtype=np.float32)
-        self.stats, self.output = verify.reference_stats(self.values)
+def read_input(path):
+    raw = Path(path).read_bytes()
+    if len(raw) < 4:
+        raise ValueError(f'{path}: falta N')
+    n = struct.unpack('<i', raw[:4])[0]
+    if n < 0 or len(raw) != 4 + 4 * n:
+        raise ValueError(f'{path}: N o longitud invalida')
+    values = np.frombuffer(raw, dtype='<f4', offset=4).copy()
+    if not np.all(np.isfinite(values)):
+        raise ValueError(f'{path}: contiene NaN o infinito')
+    return n, values
 
-    def check(self, stats, output):
-        with contextlib.redirect_stdout(io.StringIO()):
-            return verify.compare(self.values, {'Scalar': (self.stats, self.output),
-                                               'AVX2': (stats, output)}, 1e-4, 1e-6)
 
-    def test_correct_results(self):
-        self.assertTrue(self.check(self.stats, self.output))
+def read_summary(path):
+    result = {}
+    for line in Path(path).read_text().splitlines():
+        if '=' in line:
+            key, value = line.split('=', 1)
+            key = key.strip()
+            if key in result:
+                raise ValueError(f'{path}: campo duplicado {key}')
+            result[key] = float(value)
+    if not all(key in result for key in ('n',) + FIELDS):
+        raise ValueError(f'{path}: faltan estadisticos')
+    if not all(np.isfinite(result[key]) for key in ('n',) + FIELDS):
+        raise ValueError(f'{path}: estadisticos no finitos')
+    return result
 
-    def test_each_statistic(self):
-        for key in verify.FIELDS:
-            with self.subTest(key=key):
-                bad = dict(self.stats)
-                bad[key] = float(bad[key]) + 100
-                self.assertFalse(self.check(bad, self.output))
 
-    def test_missing_tail(self):
-        bad = self.output.copy()
-        bad[8:] = 0
-        self.assertFalse(self.check(self.stats, bad))
+def reference_stats(values):
+    if not len(values):
+        raise ValueError('N = 0 debe rechazarse antes de ejecutar los kernels')
+    with np.errstate(over='raise', invalid='raise', divide='raise'):
+        total = np.sum(values, dtype=np.float32)
+        mean = np.float32(total / np.float32(len(values)))
+        delta = values - mean
+        var = np.mean(delta * delta, dtype=np.float32)
+        stddev = np.sqrt(var)
+        # Contrato de stats.h: copiar la entrada cuando sigma es cero.
+        normalized = values.copy() if stddev == 0 else delta / stddev
+    return dict(zip(FIELDS, (total, mean, var, stddev, values.min(), values.max()))), normalized
 
-    def test_nan(self):
-        bad = self.output.copy()
-        bad[-1] = np.nan
-        self.assertFalse(self.check(self.stats, bad))
 
-    def test_constant_contract(self):
-        values = np.full(16, 5, dtype=np.float32)
-        stats, output = verify.reference_stats(values)
-        self.assertEqual(stats['stddev'], 0)
-        np.testing.assert_array_equal(values, output)
+def discrepancy_mask(actual, expected, rtol, atol):
+    """Marca errores con tolerancia relativa, o absoluta si la referencia es cero."""
+    actual, expected = np.asarray(actual, dtype=np.float64), np.asarray(expected, dtype=np.float64)
+    if actual.shape != expected.shape:
+        raise ValueError('Las formas de los resultados no coinciden')
+    with np.errstate(over='ignore', invalid='ignore'):
+        limit = np.where(expected == 0, atol, rtol * np.abs(expected))
+        return (~np.isfinite(actual) | ~np.isfinite(expected)
+                | (np.abs(actual - expected) > limit))
 
-    def test_binary_validation(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'input.dat'
-            for raw in (b'', struct.pack('<i', -1), struct.pack('<i', 1),
-                        struct.pack('<i2f', 1, 2, 3), struct.pack('<if', 1, float('nan'))):
-                with self.subTest(raw=raw):
-                    path.write_bytes(raw)
-                    with self.assertRaises(ValueError):
-                        verify.read_input(path)
 
-    def test_summary_validation(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'summary.txt'
-            for text in ('n=15\n', 'n=15\nn=15\n',
-                         'n=15\n' + ''.join(f'{key}=nan\n' for key in verify.FIELDS)):
-                path.write_text(text)
-                with self.assertRaises(ValueError):
-                    verify.read_summary(path)
+def close(actual, expected, rtol, atol):
+    if np.shape(actual) != np.shape(expected):
+        return False
+    return not bool(np.any(discrepancy_mask(actual, expected, rtol, atol)))
 
-    def test_tolerance(self):
-        self.assertFalse(verify.close(1e-8, 1e-10, 1e-4, 1e-6))
-        self.assertTrue(verify.close(1e-7, 0, 1e-4, 1e-6))
-        self.assertFalse(verify.close(2e-6, 0, 1e-4, 1e-6))
-        self.assertFalse(verify.close(float('inf'), float('inf'), 1e-4, 1e-6))
 
-    def test_nonzero_references_near_zero(self):
-        for expected in (1e-10, -1e-10, 1e-30, -1e-30):
-            with self.subTest(expected=expected):
-                self.assertTrue(verify.close(expected * (1 + 5e-5), expected, 1e-4, 1e-6))
-                self.assertFalse(verify.close(expected * (1 + 2e-4), expected, 1e-4, 1e-6))
-                self.assertFalse(verify.close(0, expected, 1e-4, 1e-6))
+def normalization_check(values, stats, output):
+    """Comprueba la formula float32 con los parametros del propio ejecutable."""
+    mean, sigma = np.float32(stats['mean']), np.float32(stats['stddev'])
+    if not np.isfinite(mean) or not np.isfinite(sigma) or sigma < 0:
+        return False
+    with np.errstate(over='ignore', invalid='ignore', divide='ignore'):
+        expected = values.copy() if sigma == 0 else (values - mean) / sigma
+    return bool(np.all(np.isfinite(output)) and np.all(np.isfinite(expected))
+                and np.array_equal(output, expected))
 
-    def test_zero_and_tolerance_boundaries(self):
-        for expected in (0.0, -0.0):
-            for actual in (0.0, -1e-6, 1e-6):
-                self.assertTrue(verify.close(actual, expected, 1e-4, 1e-6))
-            self.assertFalse(verify.close(np.nextafter(1e-6, np.inf), expected, 1e-4, 1e-6))
-        # Valores binarios exactos para comprobar el limite inclusivo.
-        self.assertTrue(verify.close(1.125, 1.0, 0.125, 0))
-        self.assertFalse(verify.close(np.nextafter(1.125, np.inf), 1.0, 0.125, 0))
-        self.assertTrue(verify.close(1e-10, 1e-10, 0, 0))
-        self.assertFalse(verify.close(2e-10, 1e-10, 0, 0))
 
-    def test_discrepancy_mask_matches_acceptance(self):
-        expected = np.array([0, 1e-10, -1e-10, 1, 1, 1], dtype=np.float64)
-        actual = np.array([1e-7, 1e-8, -1e-8, 1.00001, np.nan, np.inf])
-        mask = verify.discrepancy_mask(actual, expected, 1e-4, 1e-6)
-        np.testing.assert_array_equal(mask, [False, True, True, False, True, True])
-        for a, e, bad in zip(actual, expected, mask):
-            self.assertEqual(verify.close(a, e, 1e-4, 1e-6), not bad)
-        self.assertFalse(verify.close(actual, expected, 1e-4, 1e-6))
-        self.assertFalse(verify.close([1], [1, 2], 1e-4, 1e-6))
+def precision_diagnostic(values, results, ref):
+    """Referencia de diagnostico; no cambia el criterio de aceptacion."""
+    total = math.fsum(map(float, values))
+    mean = total / len(values)
+    print('  DIAGNOSTICO: suma con math.fsum; no sustituye la referencia NumPy float32')
+    print(f'  suma={total:.17g}, media={mean:.17g}')
+    for name, stats in [('NumPy', ref)] + [(name, pair[0]) for name, pair in results.items()]:
+        actual = float(np.float32(stats['mean']))
+        print(f'  {name}: media={actual:.17g}, error absoluto de media={abs(actual-mean):.9g}')
 
-    def test_small_statistic_is_rejected(self):
-        values = np.array([1e-10], dtype=np.float32)
-        stats, output = verify.reference_stats(values)
-        bad = dict(stats, sum=1e-8)
-        with contextlib.redirect_stdout(io.StringIO()) as log:
-            passed = verify.compare(values, {'Scalar': (bad, output)}, 1e-4, 1e-6)
-        self.assertFalse(passed)
-        self.assertIn('[FAIL] sum_array', log.getvalue())
 
-    def test_small_normalized_value_is_reported(self):
-        values = np.array([-1, 1e-10, 1], dtype=np.float32)
-        stats, output = verify.reference_stats(values)
-        wrong = output.copy()
-        wrong[1] = 1e-8
-        with contextlib.redirect_stdout(io.StringIO()) as log:
-            passed = verify.compare(values, {'Scalar': (stats, wrong)}, 1e-4, 1e-6)
-        self.assertFalse(passed)
-        self.assertIn('[FAIL] normalizacion: Scalar', log.getvalue())
-        self.assertIn('indice=1', log.getvalue())
-        self.assertIn('discrepancias=1', log.getvalue())
+def compare(values, results, rtol, atol, diagnose=False):
+    ref, normalized = reference_stats(values)
+    ok = True
+    for group, fields in (('sum_array', ('sum',)),
+                          ('compute_stats', ('mean', 'var', 'min', 'max', 'stddev'))):
+        group_ok = True
+        for key in fields:
+            checks = [close(stats[key], ref[key], rtol, atol) for stats, _ in results.values()]
+            if len(results) == 2:
+                a, b = list(results.values())
+                checks.append(close(a[0][key], b[0][key], rtol, atol))
+            if not all(checks):
+                group_ok = False
+                print(f'  {key}: Expected={ref[key]:.9g} ' + ' '.join(
+                    f'{name}={stats[key]:.9g}' for name, (stats, _) in results.items()))
+        print(f'[{"PASS" if group_ok else "FAIL"}] {group}')
+        ok &= group_ok
+    array_ok = True
+    pairs = [(name, output, normalized) for name, (_, output) in results.items()]
+    if len(results) == 2:
+        a, b = list(results.values())
+        pairs.append(('Scalar/AVX2', a[1], b[1]))
+    for name, output, expected in pairs:
+        pair_ok = close(output, expected, rtol, atol)
+        print(f'[{"PASS" if pair_ok else "FAIL"}] normalizacion: {name}' +
+              (' entre versiones' if name == 'Scalar/AVX2' else ' contra NumPy'))
+        if not pair_ok:
+            array_ok = False
+            if output.shape == expected.shape:
+                bad = np.flatnonzero(discrepancy_mask(output, expected, rtol, atol))
+                i = int(bad[0])
+                print(f'  {name}: indice={i}, Expected={expected[i]:.9g}, obtenido={output[i]:.9g}, discrepancias={len(bad)}')
+            else:
+                print(f'  {name}: longitud de salida incorrecta')
+    print(f'[{"PASS" if array_ok else "FAIL"}] normalize_array')
+    formula_ok = True
+    for name, (stats, output) in results.items():
+        matched = normalization_check(values, stats, output)
+        formula_ok &= matched
+        print(f'[{"PASS" if matched else "FAIL"}] {name}: formula con media/stddev propios')
+    if diagnose:
+        precision_diagnostic(values, results, ref)
+    return bool(ok and array_ok and formula_ok)
 
-    def test_formula_uses_own_parameters(self):
-        stats = dict(self.stats, mean=np.float32(2.5), stddev=np.float32(3))
-        output = (self.values - stats['mean']) / stats['stddev']
-        self.assertTrue(verify.normalization_check(self.values, stats, output))
-        output[-1] += np.float32(0.01)
-        self.assertFalse(verify.normalization_check(self.values, stats, output))
 
-    def test_formula_constant_and_invalid_sigma(self):
-        self.assertTrue(verify.normalization_check(self.values, dict(mean=0, stddev=0), self.values.copy()))
-        self.assertFalse(verify.normalization_check(self.values, dict(mean=0, stddev=-1), -self.values))
+def load_result(summary, output, n):
+    stats = read_summary(summary)
+    out_n, values = read_input(output)
+    if stats['n'] != n or out_n != n:
+        raise ValueError('N de salida/resumen distinto de la entrada')
+    return stats, values
 
-    def test_diagnostic_does_not_hide_failure(self):
-        wrong = self.output.copy()
-        wrong[0] += 1
-        with contextlib.redirect_stdout(io.StringIO()) as log:
-            passed = verify.compare(self.values, {'Scalar': (self.stats, wrong)}, 1e-4, 1e-6, True)
-        self.assertFalse(passed)
-        self.assertIn('math.fsum', log.getvalue())
+
+def run_case(path, scalar, vector, rtol, atol, diagnose=False):
+    n, values = read_input(path)
+    print(f'\nCaso: {Path(path).name}, N={n}')
+    results = {}
+    empty_ok = True
+    with tempfile.TemporaryDirectory(prefix='verify-') as directory:
+        for name, executable in (('Scalar', scalar), ('AVX2', vector)):
+            output = Path(directory) / f'{name}.dat'
+            run = subprocess.run([str(executable), str(Path(path).resolve()), str(output), '1'],
+                                 capture_output=True, text=True, timeout=60)
+            if n == 0:
+                controlled = (run.returncode > 0 and 'Error:' in run.stderr
+                              and not output.exists() and not Path(str(output) + '.stats.txt').exists())
+                print(f'[{"PASS" if controlled else "FAIL"}] {name}: rechazo controlado de N=0 (codigo={run.returncode})')
+                empty_ok &= controlled
+                continue
+            if run.returncode != 0:
+                raise ValueError(f'{name}: codigo={run.returncode}, {run.stderr.strip()}')
+            results[name] = load_result(str(output) + '.stats.txt', output, n)
+    return empty_ok if n == 0 else compare(values, results, rtol, atol, diagnose)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('input', nargs='?', type=Path)
+    parser.add_argument('summary', nargs='?', type=Path)
+    parser.add_argument('tolerance', nargs='?', type=float)
+    parser.add_argument('--output', type=Path, help='Binario asociado al resumen; se infiere quitando .stats.txt')
+    parser.add_argument('--suite', action='store_true', help='Generar y verificar casos reproducibles')
+    parser.add_argument('--diagnose', action='store_true', help='Mostrar error de la media frente a math.fsum sin cambiar tolerancias')
+    parser.add_argument('--scalar', type=Path, default=ROOT / 'bin/norm_scalar')
+    parser.add_argument('--vector', type=Path, default=ROOT / 'bin/norm_vector')
+    parser.add_argument('--rtol', type=float, default=1e-4)
+    parser.add_argument('--atol', type=float, default=1e-6, help='Tolerancia absoluta solo si la referencia es cero')
+    args = parser.parse_args()
+    rtol = args.tolerance if args.tolerance is not None else args.rtol
+    if not all(np.isfinite(x) and x >= 0 for x in (rtol, args.atol)):
+        parser.error('Las tolerancias deben ser finitas y no negativas')
+    if args.suite == (args.input is not None):
+        parser.error('Indique una entrada o --suite')
+    if args.output and not args.summary:
+        parser.error('--output requiere un resumen')
+    failures = 0
+    try:
+        if args.summary:
+            n, values = read_input(args.input)
+            output = args.output or Path(str(args.summary).removesuffix('.stats.txt'))
+            result = load_result(args.summary, output, n)
+            failures = int(not compare(values, {'Obtenido': result}, rtol, args.atol, args.diagnose))
+        else:
+            with tempfile.TemporaryDirectory(prefix='verify-inputs-') as directory:
+                paths = [args.input] if args.input else []
+                if args.suite:
+                    jobs = [(n, 'random') for n in SMALL] + [(16, 'constant'), (16, 'edge'), (15, 'edge')]
+                    for n, mode in jobs:
+                        path = Path(directory) / f'input_{n}_{mode}.dat'
+                        generate(n, path, mode, 123)
+                        paths.append(path)
+                    for name, values in (('negative', -np.arange(1, 18, dtype=np.float32)),
+                                         ('zero_sum', np.array([-4, -3, -2, -1, 0, 1, 2, 3, 4], dtype=np.float32))):
+                        path = Path(directory) / f'{name}.dat'
+                        path.write_bytes(struct.pack('<i', len(values)) + values.astype('<f4').tobytes())
+                        paths.append(path)
+                for path in paths:
+                    try:
+                        failures += not run_case(path, args.scalar.resolve(), args.vector.resolve(), rtol, args.atol, args.diagnose)
+                    except (OSError, ValueError, FloatingPointError, subprocess.TimeoutExpired) as exc:
+                        failures += 1
+                        print(f'[FAIL] {path.name}: {exc}')
+    except (OSError, ValueError, FloatingPointError) as exc:
+        print(f'[FAIL] {exc}')
+        return 1
+    print(f'\nRESULTADO GENERAL: {"PASA" if failures == 0 else "FALLA"}; casos fallidos={failures}')
+    return int(failures != 0)
 
 
 if __name__ == '__main__':
-    unittest.main()
+    raise SystemExit(main())
