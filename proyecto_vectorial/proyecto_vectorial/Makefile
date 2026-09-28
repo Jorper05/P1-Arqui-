@@ -26,7 +26,7 @@ OBJ_DIR    := obj
 BIN_DIR    := bin
 
 ASM_SCALAR := asm/scalar/stats_scalar.asm
-# Implementacion con suma compensada disponible en el repositorio.
+
 ASM_VECTOR := asm/vector/stats_vector.asm
 
 DRIVER_OBJ := $(OBJ_DIR)/driver.o
