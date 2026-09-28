@@ -5,12 +5,13 @@
 CC        := gcc
 NASM      := nasm
 PYTHON    ?= python3
-PERF      ?= /usr/lib/linux-tools-6.8.0-142/perf
+PERF      ?= perf
 
 BENCH_SIZES ?= 1000 100000 1000000 50000000
 BENCH_REPS  ?= 30
 PERF_N      ?= 1000000
 PERF_REPS   ?= 30
+PERF_RUNS   ?= 3
 SEED        ?= 123
 BENCH_RESULTS ?= benchmark/results
 PERF_RESULTS  ?= benchmark/results/perf
@@ -141,12 +142,17 @@ benchmark: all
 	$(PYTHON) tools/measure.py benchmark --sizes $(BENCH_SIZES) --reps $(BENCH_REPS) --seed $(SEED)
 
 perf: all
-	$(PYTHON) tools/measure.py perf --sizes $(PERF_N) --reps $(PERF_REPS) --seed $(SEED) --perf "$(PERF)"
-
+	$(PYTHON) tools/measure.py perf --sizes $(PERF_N) --reps $(PERF_REPS) --seed $(SEED) --perf "$(PERF)" --perf-runs $(PERF_RUNS) --results-dir "$(PERF_RESULTS)"
 help:
 	@echo "make / make scalar / make vector: compilar"
 	@echo "make test: ejecutar todas las pruebas"
 	@echo "make benchmark: guardar tiempos y speedup en output/benchmark/"
 	@echo "make perf: guardar contadores en output/perf/"
 	@echo "make clean: eliminar obj/, bin/ y output/; conservar data/"
-	@echo "Variables: BENCH_SIZES, BENCH_REPS, PERF_N, PERF_REPS, SEED, PYTHON, PERF"
+	@echo "Variables: BENCH_SIZES, BENCH_REPS, PERF_N, PERF_REPS, PERF_RUNS, 
+PERF_RESULTS, SEED, PYTHON, PERF"
+
+# Validacion del analisis sin requerir acceso a la PMU.
+.PHONY: test-perf
+test-perf:
+	$(PYTHON) -m unittest discover -s benchmark -p 'test_perf.py' -v
