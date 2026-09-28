@@ -67,8 +67,9 @@ class VerificationTests(unittest.TestCase):
                     verify.read_summary(path)
 
     def test_tolerance(self):
-        self.assertFalse(verify.close(1e-8, 1e-10, 1e-4, 1e-6))
+        self.assertTrue(verify.close(1e-8, 1e-10, 1e-4, 1e-6))
         self.assertTrue(verify.close(1e-7, 0, 1e-4, 1e-6))
+        self.assertFalse(verify.close(2e-6, 0, 1e-4, 1e-6))
         self.assertFalse(verify.close(float('inf'), float('inf'), 1e-4, 1e-6))
 
     def test_formula_uses_own_parameters(self):
