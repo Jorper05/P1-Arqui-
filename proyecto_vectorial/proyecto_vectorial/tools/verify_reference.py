@@ -63,7 +63,7 @@ def close(actual, expected, rtol, atol):
     if actual.shape != expected.shape or not np.all(np.isfinite(actual)) or not np.all(np.isfinite(expected)):
         return False
     # Tolerancia relativa; el piso absoluto solo se aplica a referencias cero.
-    limit = np.where(expected == 0, atol, rtol * np.abs(expected))
+    limit = np.maximum(atol, rtol * np.abs(expected))
     return bool(np.all(np.isfinite(actual) & np.isfinite(expected) & (np.abs(actual - expected) <= limit)))
 
 
