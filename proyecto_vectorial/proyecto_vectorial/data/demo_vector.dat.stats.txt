@@ -1,0 +1,16 @@
+n=15
+sum=-534.37677
+mean=-35.6251183
+var=2859.59399
+stddev=53.4751701
+min=-99.6658859
+max=80.2397766
+kernel_ms=0.000473933
+repetitions=30
+sum_array_ms=0.000128933
+sum_array_stddev_ms=0.000063900
+compute_stats_ms=0.000290167
+compute_stats_stddev_ms=0.000000379
+normalize_array_ms=0.000054833
+normalize_array_stddev_ms=0.000048771
+kernel_stddev_ms=0.000096217
