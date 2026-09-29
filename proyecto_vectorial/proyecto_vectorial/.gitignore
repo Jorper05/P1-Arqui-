@@ -1,7 +1,5 @@
 obj/
 bin/
-data/*.dat
-data/*.stats.txt
 # Datos grandes generados para benchmarking
 data/diagnostico/*.dat
 
