@@ -5,60 +5,82 @@ global sum_array
     section .text
 
 sum_array:
-    xor     eax, eax               ; eax = i = 0
-    vxorps  ymm0, ymm0, ymm0       ; ymm0 = acumulador vectorial (8 carriles) = 0
+    xor     eax, eax
+    vxorps  ymm0, ymm0, ymm0       ; Sumas por carril
+    vxorps  ymm2, ymm2, ymm2       ; Errores acumulados por carril
 
-    mov     ecx, esi               ; ecx = n
-    and     ecx, ~7                ; ecx = n redondeado hacia abajo, multiplo de 8
+    mov     ecx, esi
+    and     ecx, ~7
     test    ecx, ecx
     jle     .sum_reduce
 
 .sum_vec_loop:
     cmp     eax, ecx
     jge     .sum_reduce
-    vmovaps ymm1, [rdi + rax*4]    ; carga 8 floats (alineado a 32 B, camino principal)
-    vaddps  ymm0, ymm0, ymm1       ; acumula por carril
+    vmovaps ymm1, [rdi + rax*4]
+
+    ; TwoSum: recuperar el error de cada suma en float32.
+    vaddps  ymm3, ymm0, ymm1
+    vsubps  ymm4, ymm3, ymm0
+    vsubps  ymm5, ymm3, ymm4
+    vsubps  ymm6, ymm0, ymm5
+    vsubps  ymm1, ymm1, ymm4
+    vaddps  ymm6, ymm6, ymm1
+    vaddps  ymm2, ymm2, ymm6
+    vmovaps ymm0, ymm3
+
     add     eax, 8
     jmp     .sum_vec_loop
 
 .sum_reduce:
-    ; reduccion SECUENCIAL: se vuelca ymm0 a la pila y se suma en el mismo
-    ; orden e0,e1,...,e7 que usa el bucle escalar. Asi, cuando el bucle
+    ; Reducir las ocho sumas y sus ocho errores.
+    sub     rsp, 64
+    vmovups [rsp], ymm0
+    vmovups [rsp + 32], ymm2
 
-    sub     rsp, 32
-    vmovups [rsp], ymm0    ; unaligned: la pila solo garantiza 16 B, no 32 B
-    vmovss  xmm0, [rsp]
-    vaddss  xmm0, xmm0, [rsp+4]
-    vaddss  xmm0, xmm0, [rsp+8]
-    vaddss  xmm0, xmm0, [rsp+12]
-    vaddss  xmm0, xmm0, [rsp+16]
-    vaddss  xmm0, xmm0, [rsp+20]
-    vaddss  xmm0, xmm0, [rsp+24]
-    vaddss  xmm0, xmm0, [rsp+28]
-    add     rsp, 32
+    vxorps  xmm0, xmm0, xmm0
+    vxorps  xmm2, xmm2, xmm2
+    xor     r11d, r11d
 
+.sum_reduce_loop:
+    vmovss  xmm1, [rsp + r11*4]
 
-    ;Antes estabamos usando 
-    ;vextractf128 xmm2, ymm0, 1     
-    ;vaddps  xmm0, xmm0, xmm2       
-    ;vhaddps xmm0, xmm0, xmm0       
-    ;vhaddps xmm0, xmm0, xmm0
-    ;pero causaba problema con la presición y el orden de los elementos, por eso se cambio a la reduccion secuencial.
-    ;Como tal el resultado es el mismo en la mayoría de casos, pero la reduccion secuencial es mas precisa y no depende del orden de los elementos.
+    vaddss  xmm3, xmm0, xmm1
+    vsubss  xmm4, xmm3, xmm0
+    vsubss  xmm5, xmm3, xmm4
+    vsubss  xmm6, xmm0, xmm5
+    vsubss  xmm1, xmm1, xmm4
+    vaddss  xmm6, xmm6, xmm1
+    vaddss  xmm2, xmm2, xmm6
+    vmovaps xmm0, xmm3
 
+    inc     r11d
+    cmp     r11d, 16
+    jl      .sum_reduce_loop
 
+    add     rsp, 64
 
 .sum_scalar_tail:
-    ; --- elementos sobrantes (n % 8), uno a la vez, sin alinear ---
     cmp     eax, esi
     jge     .sum_done
     vmovss  xmm1, [rdi + rax*4]
-    vaddss  xmm0, xmm0, xmm1
+
+    ; Compensar tambien los elementos sobrantes.
+    vaddss  xmm3, xmm0, xmm1
+    vsubss  xmm4, xmm3, xmm0
+    vsubss  xmm5, xmm3, xmm4
+    vsubss  xmm6, xmm0, xmm5
+    vsubss  xmm1, xmm1, xmm4
+    vaddss  xmm6, xmm6, xmm1
+    vaddss  xmm2, xmm2, xmm6
+    vmovaps xmm0, xmm3
+
     inc     eax
     jmp     .sum_scalar_tail
 
 .sum_done:
-    vzeroupper                     ; evita penalizacion de transicion AVX/SSE
+    vaddss  xmm0, xmm0, xmm2
+    vzeroupper
     ret
 
 compute_stats:
