@@ -77,7 +77,7 @@ def benchmark(args, directory, work):
         writer.writerow(['n', 'version', 'sample', 'kernel_ms', 'kernel_cycles'])
         for n in args.sizes:
             source = work / 'input.dat'
-            generate(n, source, seed=args.seed)
+            generate(n, source, seed=args.seed, random_limit=1000.0)
             verify_size(source, n, directory)
             times = {'scalar': [], 'vector': []}
             cycles = {'scalar': [], 'vector': []}
