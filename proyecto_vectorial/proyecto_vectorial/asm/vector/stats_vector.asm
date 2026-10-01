@@ -129,11 +129,11 @@ compute_stats:
         jge     .var_reduce
         vcvtps2pd ymm2, oword [rdi + rax*4]        ; floats 0-3 -> 4 doubles
         vcvtps2pd ymm3, oword [rdi + rax*4 + 16]   ; floats 4-7 -> 4 doubles
-        vsubps  ymm2, ymm2, ymm1    ; (x - mean)
+        vsubpd  ymm2, ymm2, ymm1    ; (x - mean)
         vsubpd  ymm3, ymm3, ymm1
-        vmulps  ymm2, ymm2, ymm2    ; (x - mean)^2
+        vmulpd  ymm2, ymm2, ymm2    ; (x - mean)^2
         vmulpd  ymm3, ymm3, ymm3
-        vaddps  ymm0, ymm0, ymm2       ; acumular la suma de los cuadrados
+        vaddpd  ymm0, ymm0, ymm2    ; acumular la suma de los cuadrados
         vaddpd  ymm4, ymm4, ymm3
         add     eax, 8              ; Incrementar el índice en 8
         jmp     .var_loop
@@ -153,14 +153,14 @@ compute_stats:
         jge     .var_done
         vcvtss2sd xmm2, xmm2, [rdi + rax*4]
         vsubsd  xmm2, xmm2, xmm1                   ; (x - mean) en double
-        vmulss  xmm2, xmm2, xmm2 ; (x - mean)^2
-        vaddss  xmm0, xmm0, xmm2 ; acumular la suma de los cuadrados
+        vmulsd  xmm2, xmm2, xmm2    ; (x - mean)^2
+        vaddsd  xmm0, xmm0, xmm2    ; acumular
         inc     eax
         jmp     .var_scalar_tail
 
     .var_done:
         vcvtsi2sd xmm1, xmm1, esi                  ; n como double
-        vdivss   xmm0, xmm0, xmm1 ; Dividir suma(arr) entre n *Equivalente a divss xmm0, xmm1 pero de forma vectorial, decidí usar esta nomenclatura para que quede explicito en el codigo vectorial.
+        vdivsd   xmm0, xmm0, xmm1                  ; Dividir suma(arr) entre n *Equivalente a divss xmm0, xmm1 pero de forma vectorial, decidí usar esta nomenclatura para que quede explicito en el codigo vectorial.
         vcvtsd2ss xmm0, xmm0, xmm0                 ; double -> float
         vmovss   [rcx], xmm0 ; Guardar var en [var*] Usar esta instrucción tiene el mismo efecto que movss ya que esto es un valor escalar
 
