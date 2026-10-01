@@ -1,7 +1,6 @@
 obj/
 bin/
-data/*.dat
-data/*.stats.txt
+
 
 # Archivos de datos grandes generados
 **/input_50000000.dat
