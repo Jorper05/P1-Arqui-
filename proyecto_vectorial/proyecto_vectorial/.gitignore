@@ -13,6 +13,4 @@ data/*.stats.txt
 # Logs generados
 *.log
 
-# Resultados generados
-proyecto_vectorial/proyecto_vectorial/output/benchmark/
-proyecto_vectorial/proyecto_vectorial/benchmark/results/
+
