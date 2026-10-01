@@ -1,0 +1,13 @@
+# Archivos de datos grandes generados
+**/input_50000000.dat
+
+# Archivos temporales de Python
+**/__pycache__/
+*.pyc
+
+# Logs generados
+*.log
+
+# Resultados generados
+proyecto_vectorial/proyecto_vectorial/output/benchmark/
+proyecto_vectorial/proyecto_vectorial/benchmark/results/
