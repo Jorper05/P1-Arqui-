@@ -19,7 +19,7 @@ BLOCK = 65_536
 MAX_N = 2**31 - 1
 
 
-def generate(n, destination, mode="random", seed=None):
+def generate(n, destination, mode="random", seed=None, random_limit=100.0):
     """Escribe atomicamente; conserva el archivo anterior si falla la generacion."""
     if not 0 <= n <= MAX_N:
         raise ValueError(f"N debe estar entre 0 y {MAX_N}")
@@ -36,7 +36,7 @@ def generate(n, destination, mode="random", seed=None):
             for start in range(0, n, BLOCK):
                 count = min(BLOCK, n - start)
                 if mode == "random":
-                    values = [rng.uniform(-1000.0, 1000.0) for _ in range(count)]
+                    values = [rng.uniform(-random_limit, random_limit) for _ in range(count)]
                 elif mode == "constant":
                     values = [5.0] * count
                 else:
