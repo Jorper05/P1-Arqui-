@@ -8,8 +8,10 @@ bin/
 **/__pycache__/
 *.pyc
 
-# Logs generales
+# Logs generados
 *.log
 
-# Resultados que forman parte de la evidencia del proyecto
-!benchmark/results/*.log
+# Conservar resultados de benchmark y perf
+!benchmark/
+!benchmark/results/
+!benchmark/results/**
