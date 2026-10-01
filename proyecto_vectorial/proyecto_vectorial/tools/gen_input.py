@@ -36,7 +36,7 @@ def generate(n, destination, mode="random", seed=None):
             for start in range(0, n, BLOCK):
                 count = min(BLOCK, n - start)
                 if mode == "random":
-                    values = [rng.uniform(-100.0, 100.0) for _ in range(count)]
+                    values = [rng.uniform(-1000.0, 1000.0) for _ in range(count)]
                 elif mode == "constant":
                     values = [5.0] * count
                 else:
