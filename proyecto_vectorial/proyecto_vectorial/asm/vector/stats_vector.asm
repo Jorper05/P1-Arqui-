@@ -136,6 +136,7 @@ compute_stats:
     ;var_array:
     xor     eax, eax    ; i = 0
     vxorps  ymm0, ymm0, ymm0 ; Acumulador vectorial
+    vxorps  ymm3, ymm3, ymm3 ; Error acumulado
     vbroadcastss ymm1, [rdx] ; Guarda mean a los 8 carriles de ymm1
 
     mov     r10d, esi          ; guardar n en r10d (Parte baja de r10 que es de 64 bits), aquí se usa otro registro para no ocupar el registro ecx donde irá la varianza
@@ -150,11 +151,20 @@ compute_stats:
         vmovaps ymm2, [rdi + rax*4] ; Cargar 8 floats de arr (alineado a 32 B, camino principal)
         vsubps  ymm2, ymm2, ymm1    ; (x - mean)
         vmulps  ymm2, ymm2, ymm2    ; (x - mean)^2
-        vaddps  ymm0, ymm0, ymm2       ; acumular la suma de los cuadrados
+        ; conservar el error de redondeo
+        vaddps  ymm4, ymm0, ymm2
+        vsubps  ymm5, ymm4, ymm0
+        vsubps  ymm6, ymm4, ymm5
+        vsubps  ymm6, ymm0, ymm6
+        vsubps  ymm5, ymm2, ymm5
+        vaddps  ymm6, ymm6, ymm5
+        vaddps  ymm3, ymm3, ymm6
+        vmovaps ymm0, ymm4
         add     eax, 8              ; Incrementar el índice en 8
         jmp     .var_loop
 
     .var_reduce:
+        vaddps  ymm0, ymm0, ymm3
         sub     rsp, 32
         vmovups [rsp], ymm0    ; unaligned
         vmovss  xmm0, [rsp]
