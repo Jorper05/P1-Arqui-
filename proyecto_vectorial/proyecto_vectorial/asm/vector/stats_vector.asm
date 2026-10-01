@@ -6,7 +6,8 @@ global sum_array
 
 sum_array:
     xor     eax, eax               ; eax = i = 0
-    vxorps  ymm0, ymm0, ymm0       ; ymm0 = acumulador vectorial (8 carriles) = 0
+    vxorpd  ymm0, ymm0, ymm0           ; acumulador double (elementos 0-3 de cada bloque)
+    vxorpd  ymm2, ymm2, ymm2           ; acumulador double (elementos 4-7 de cada bloque)
 
     mov     ecx, esi               ; ecx = n
     and     ecx, ~7                ; ecx = n redondeado hacia abajo, multiplo de 8
@@ -16,25 +17,23 @@ sum_array:
 .sum_vec_loop:
     cmp     eax, ecx
     jge     .sum_reduce
-    vmovaps ymm1, [rdi + rax*4]    ; carga 8 floats (alineado a 32 B, camino principal)
-    vaddps  ymm0, ymm0, ymm1       ; acumula por carril
+    vcvtps2pd ymm1, oword [rdi + rax*4]        ; floats 0-3 -> 4 doubles
+    vcvtps2pd ymm3, oword [rdi + rax*4 + 16]   ; floats 4-7 -> 4 doubles
+    vaddpd  ymm0, ymm0, ymm1       ; acumula por carril
+    vaddpd  ymm2, ymm2, ymm3
     add     eax, 8
     jmp     .sum_vec_loop
 
 .sum_reduce:
     ; reduccion SECUENCIAL: se vuelca ymm0 a la pila y se suma en el mismo
     ; orden e0,e1,...,e7 que usa el bucle escalar. Asi, cuando el bucle
-
+    vaddpd  ymm0, ymm0, ymm2
     sub     rsp, 32
-    vmovups [rsp], ymm0    ; unaligned: la pila solo garantiza 16 B, no 32 B
-    vmovss  xmm0, [rsp]
-    vaddss  xmm0, xmm0, [rsp+4]
-    vaddss  xmm0, xmm0, [rsp+8]
-    vaddss  xmm0, xmm0, [rsp+12]
-    vaddss  xmm0, xmm0, [rsp+16]
-    vaddss  xmm0, xmm0, [rsp+20]
-    vaddss  xmm0, xmm0, [rsp+24]
-    vaddss  xmm0, xmm0, [rsp+28]
+    vmovupd [rsp], ymm0
+    vmovsd  xmm0, [rsp]
+    vaddsd  xmm0, xmm0, [rsp+8]
+    vaddsd  xmm0, xmm0, [rsp+16]
+    vaddsd  xmm0, xmm0, [rsp+24]
     add     rsp, 32
 
 
@@ -52,12 +51,13 @@ sum_array:
     ; --- elementos sobrantes (n % 8), uno a la vez, sin alinear ---
     cmp     eax, esi
     jge     .sum_done
-    vmovss  xmm1, [rdi + rax*4]
-    vaddss  xmm0, xmm0, xmm1
+    vcvtss2sd xmm1, xmm1, [rdi + rax*4]
+    vaddsd  xmm0, xmm0, xmm1
     inc     eax
     jmp     .sum_scalar_tail
 
 .sum_done:
+    vcvtsd2ss xmm0, xmm0, xmm0         ; double -> float
     vzeroupper                     ; evita penalizacion de transicion AVX/SSE
     ret
 
