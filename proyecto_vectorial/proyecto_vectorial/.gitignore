@@ -1,7 +1,6 @@
 obj/
 bin/
 
-
 # Archivos de datos grandes generados
 **/input_50000000.dat
 
@@ -9,7 +8,8 @@ bin/
 **/__pycache__/
 *.pyc
 
-# Logs generados
+# Logs generales
 *.log
 
-
+# Resultados que forman parte de la evidencia del proyecto
+!benchmark/results/*.log
