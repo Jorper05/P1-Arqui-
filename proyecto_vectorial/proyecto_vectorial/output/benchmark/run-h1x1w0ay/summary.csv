@@ -1,0 +1,2 @@
+n,samples,scalar_mean_ms,scalar_std_ms,vector_mean_ms,vector_std_ms,speedup,scalar_mean_cycles,scalar_std_cycles,vector_mean_cycles,vector_std_cycles,speedup_cycles
+50000000,2,494.4445545,10.911953760438331,100.7984975,3.1266883005845862,4.90527703054304,1027321587.5,22669455.20321784,209394459.0,6525000.357453477,4.9061545964786015

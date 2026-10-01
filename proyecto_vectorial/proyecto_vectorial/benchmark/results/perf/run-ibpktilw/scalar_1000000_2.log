@@ -1,0 +1,13 @@
+N        = 1000000
+Suma     = 17708.986328
+Media    = 0.017709
+Varianza = 3334.030029
+StdDev   = 57.741058
+Minimo   = -99.999748
+Maximo   = 99.999863
+sum_array: 1.433116865 ms (desviacion muestral: 0.117120198 ms)
+compute_stats: 6.521559580 ms (desviacion muestral: 0.272997578 ms)
+normalize_array: 0.815395665 ms (desviacion muestral: 0.147835698 ms)
+Tiempo promedio del kernel (200 rep.): 8.770072 ms
+Desviacion muestral del kernel: 0.375141901 ms
+Ciclos TSC promedio del kernel: 18229545.895 (desviacion muestral: 779776.659)

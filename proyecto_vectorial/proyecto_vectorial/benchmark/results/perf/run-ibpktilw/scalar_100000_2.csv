@@ -1,0 +1,6 @@
+# started on Mon Sep 28 18:04:22 2026
+
+6880372053;;cycles:u;1799381500;100.00;;
+13003682975;;instructions:u;1799381500;100.00;1.89;insn per cycle
+250463;;cache-misses:u;1799381500;100.00;0.16;of all cache refs
+153624507;;cache-references:u;1799381500;100.00;;

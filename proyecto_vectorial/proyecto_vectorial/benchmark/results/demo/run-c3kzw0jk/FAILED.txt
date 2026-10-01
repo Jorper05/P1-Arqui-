@@ -1,0 +1,1 @@
+El driver no reporta kernel_cycles; recompile con make clean && make

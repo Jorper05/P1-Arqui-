@@ -1,0 +1,30 @@
+{
+  "utc": "2026-10-01T15:53:52.242971+00:00",
+  "platform": "Linux-6.18.40.1-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+  "python": "3.12.3 (main, Aug 31 2026, 10:18:26) [GCC 13.3.0]",
+  "sizes": [
+    1000,
+    100000,
+    1000000,
+    50000000
+  ],
+  "reps": 30,
+  "seed": 123,
+  "mode": "benchmark",
+  "perf_runs": 3,
+  "sample_scope": "kernel_ms y kernel_cycles (TSC) del driver; una repeticion cronometrada por proceso, tras una llamada de calentamiento",
+  "standard_deviation": "muestral (ddof=1)",
+  "correctness": "suite pequena y cada tamano; rtol=1e-4, atol=1e-6 solo referencia cero",
+  "perf_scope": "proceso completo, incluida E/S; las repeticiones se escalan por tamano (N*reps >= 200000000) para que el kernel domine los contadores",
+  "perf_reps": {
+    "1000": 200000,
+    "100000": 2000,
+    "1000000": 200,
+    "50000000": 30
+  },
+  "binaries_sha256": {
+    "scalar": "e308cb552157c7812541113eff4dd13e7ffc7443b58d05ad41860709c80c244f",
+    "vector": "e3701d024c6d918afad0be3d4372139d2e9e57ee8db9177e7e216343fb24a438"
+  },
+  "commit": "bbaaa9190ded7fa289e719a2b4bacba406175b19"
+}

@@ -1,0 +1,1 @@
+La verificacion fallo; consulte verification.log. No se midio rendimiento.

@@ -1,0 +1,6 @@
+# started on Thu Oct  1 10:18:06 2026
+
+556830229;;cycles:u;161629200;100.00;;
+1078759329;;instructions:u;161629200;100.00;1.94;insn per cycle
+84368;;cache-misses:u;161629200;100.00;0.07;of all cache refs
+128703803;;cache-references:u;161629200;100.00;;

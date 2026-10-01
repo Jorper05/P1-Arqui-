@@ -1,0 +1,162 @@
+Generado '/tmp/verify-inputs-jdicw0no/input_0_random.dat' con N=0, modo=random, bytes=4
+Generado '/tmp/verify-inputs-jdicw0no/input_1_random.dat' con N=1, modo=random, bytes=8
+Generado '/tmp/verify-inputs-jdicw0no/input_7_random.dat' con N=7, modo=random, bytes=32
+Generado '/tmp/verify-inputs-jdicw0no/input_8_random.dat' con N=8, modo=random, bytes=36
+Generado '/tmp/verify-inputs-jdicw0no/input_15_random.dat' con N=15, modo=random, bytes=64
+Generado '/tmp/verify-inputs-jdicw0no/input_16_random.dat' con N=16, modo=random, bytes=68
+Generado '/tmp/verify-inputs-jdicw0no/input_1000_random.dat' con N=1000, modo=random, bytes=4004
+Generado '/tmp/verify-inputs-jdicw0no/input_16_constant.dat' con N=16, modo=constant, bytes=68
+Generado '/tmp/verify-inputs-jdicw0no/input_16_edge.dat' con N=16, modo=edge, bytes=68
+Generado '/tmp/verify-inputs-jdicw0no/input_15_edge.dat' con N=15, modo=edge, bytes=64
+
+Caso: input_0_random.dat, N=0
+[PASS] Scalar: rechazo controlado de N=0 (codigo=1)
+[PASS] AVX2: rechazo controlado de N=0 (codigo=1)
+
+Caso: input_1_random.dat, N=1
+[PASS] sum_array
+[PASS] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[PASS] normalizacion: AVX2 contra NumPy
+[PASS] normalizacion: Scalar/AVX2 entre versiones
+[PASS] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_7_random.dat, N=7
+[PASS] sum_array
+  var: Expected=3661.48218 Scalar=3661.48218 AVX2=0
+  stddev: Expected=60.5101814 Scalar=60.5101814 AVX2=0
+[FAIL] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[FAIL] normalizacion: AVX2 contra NumPy
+  AVX2: indice=0, Expected=-0.832682431, obtenido=-89.5272827, discrepancias=7
+[FAIL] normalizacion: Scalar/AVX2 entre versiones
+  Scalar/AVX2: indice=0, Expected=-89.5272827, obtenido=-0.832682431, discrepancias=7
+[FAIL] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_8_random.dat, N=8
+[PASS] sum_array
+  var: Expected=3207.20361 Scalar=3207.20361 AVX2=19104.6641
+  stddev: Expected=56.6321793 Scalar=56.6321793 AVX2=138.21962
+[FAIL] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[FAIL] normalizacion: AVX2 contra NumPy
+  AVX2: indice=0, Expected=-0.902020693, obtenido=-0.369581372, discrepancias=8
+[FAIL] normalizacion: Scalar/AVX2 entre versiones
+  Scalar/AVX2: indice=0, Expected=-0.369581372, obtenido=-0.902020693, discrepancias=8
+[FAIL] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_15_random.dat, N=15
+[PASS] sum_array
+  var: Expected=2859.59399 Scalar=2859.59399 AVX2=18486.2891
+  stddev: Expected=53.4751701 Scalar=53.4751701 AVX2=135.964294
+[FAIL] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[FAIL] normalizacion: AVX2 contra NumPy
+  AVX2: indice=0, Expected=-1.00798488, obtenido=-0.396443516, discrepancias=15
+[FAIL] normalizacion: Scalar/AVX2 entre versiones
+  Scalar/AVX2: indice=0, Expected=-0.396443516, obtenido=-1.00798488, discrepancias=15
+[FAIL] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_16_random.dat, N=16
+[PASS] sum_array
+  var: Expected=2809.49023 Scalar=2809.49023 AVX2=3.53111409e+10
+  stddev: Expected=53.0046234 Scalar=53.0046234 AVX2=187912.594
+[FAIL] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[FAIL] normalizacion: AVX2 contra NumPy
+  AVX2: indice=0, Expected=-0.961687863, obtenido=-0.000271263911, discrepancias=16
+[FAIL] normalizacion: Scalar/AVX2 entre versiones
+  Scalar/AVX2: indice=0, Expected=-0.000271263911, obtenido=-0.961687863, discrepancias=16
+[FAIL] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_1000_random.dat, N=1000
+[PASS] sum_array
+  var: Expected=3305.87769 Scalar=3305.87769 AVX2=1.07220778e+24
+  stddev: Expected=57.4967613 Scalar=57.4967613 AVX2=1.03547463e+12
+[FAIL] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[FAIL] normalizacion: AVX2 contra NumPy
+  AVX2: indice=0, Expected=-1.50784755, obtenido=-8.37261926e-11, discrepancias=1000
+[FAIL] normalizacion: Scalar/AVX2 entre versiones
+  Scalar/AVX2: indice=0, Expected=-8.37261926e-11, obtenido=-1.50784755, discrepancias=1000
+[FAIL] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_16_constant.dat, N=16
+[PASS] sum_array
+[PASS] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[PASS] normalizacion: AVX2 contra NumPy
+[PASS] normalizacion: Scalar/AVX2 entre versiones
+[PASS] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_16_edge.dat, N=16
+[PASS] sum_array
+  var: Expected=3.75000007e+11 Scalar=3.75000007e+11 AVX2=6.76863997e+16
+  stddev: Expected=612372.438 Scalar=612372.438 AVX2=260166096
+[FAIL] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[FAIL] normalizacion: AVX2 contra NumPy
+  AVX2: indice=0, Expected=-1.6329931, obtenido=-0.00384369842, discrepancias=14
+[FAIL] normalizacion: Scalar/AVX2 entre versiones
+  Scalar/AVX2: indice=0, Expected=-0.00384369842, obtenido=-1.6329931, discrepancias=14
+[FAIL] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_15_edge.dat, N=15
+[PASS] sum_array
+  var: Expected=3.28888877e+11 Scalar=3.28888877e+11 AVX2=9.21403388e+17
+  stddev: Expected=573488.312 Scalar=573488.312 AVX2=959897600
+[FAIL] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[FAIL] normalizacion: AVX2 contra NumPy
+  AVX2: indice=0, Expected=-1.62746704, obtenido=-0.000972325914, discrepancias=15
+[FAIL] normalizacion: Scalar/AVX2 entre versiones
+  Scalar/AVX2: indice=0, Expected=-0.000972325914, obtenido=-1.62746704, discrepancias=15
+[FAIL] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: negative.dat, N=17
+[PASS] sum_array
+  var: Expected=24 Scalar=24 AVX2=156.000061
+  stddev: Expected=4.89897966 Scalar=4.89897966 AVX2=12.4899988
+[FAIL] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[FAIL] normalizacion: AVX2 contra NumPy
+  AVX2: indice=0, Expected=1.6329931, obtenido=0.640512466, discrepancias=16
+[FAIL] normalizacion: Scalar/AVX2 entre versiones
+  Scalar/AVX2: indice=0, Expected=0.640512466, obtenido=1.6329931, discrepancias=16
+[FAIL] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: zero_sum.dat, N=9
+[PASS] sum_array
+  var: Expected=6.66666651 Scalar=6.66666651 AVX2=4022.00195
+  stddev: Expected=2.58198881 Scalar=2.58198881 AVX2=63.4192543
+[FAIL] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[FAIL] normalizacion: AVX2 contra NumPy
+  AVX2: indice=0, Expected=-1.54919338, obtenido=-0.0630723312, discrepancias=8
+[FAIL] normalizacion: Scalar/AVX2 entre versiones
+  Scalar/AVX2: indice=0, Expected=-0.0630723312, obtenido=-1.54919338, discrepancias=8
+[FAIL] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+RESULTADO GENERAL: FALLA; casos fallidos=9
