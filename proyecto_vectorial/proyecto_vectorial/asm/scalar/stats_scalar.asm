@@ -1,79 +1,31 @@
-; =============================================================
-; stats_scalar.asm
-; Version ESCALAR (referencia) de los kernels de computo.
-;
-; Convencion de llamada: System V AMD64 ABI
-;   enteros/punteros: rdi, rsi, rdx, rcx, r8, r9
-;   flotantes:        xmm0, xmm1, xmm2, ...
-;   retorno float:    xmm0
-;   callee-saved:     rbx, rbp, r12-r15 (si los usa, debe preservarlos)
-; =============================================================
-
-    global sum_array
+global sum_array
     global compute_stats
     global normalize_array
 
     section .text
 
-; ---------------------------------------------------------------
-; float sum_array(const float *arr, int n)
-;   rdi = arr, esi = n 
-;   retorna la suma en xmm0
-;
-; IMPLEMENTADA COMO EJEMPLO: estudien este patron (recorrido,
-; acumulador, condicion de salida) antes de escribir compute_stats
-; y normalize_array.
-; ---------------------------------------------------------------
 sum_array:
-    xor     eax, eax
-    xorps   xmm0, xmm0         ; suma principal
-    xorps   xmm2, xmm2         ; errores de redondeo acumulados
+    xor     eax, eax           ; eax = i = 0
+    xorpd   xmm0, xmm0         ; xmm0 = acumulador EN DOUBLE = 0.0
+    ; Antes se acumulaba en xmm0 como float (addss), pero eso pierde
+    ; precision en sumas largas (igual que le paso al vectorial).
+    ; Se corrige igual que en el vectorial: cada elemento se convierte
+    ; a double antes de sumarlo, y el acumulador se mantiene en double
+    ; durante todo el recorrido. Se usan
+    ; mas bits de precision intermedia; la logica del bucle no cambia.
+
 .sum_loop:
     cmp     eax, esi
     jge     .sum_done
-    movss   xmm1, [rdi + rax*4]
-    ; TwoSum: recuperar el residuo de suma+x, incluso con cancelacion.
-    movaps  xmm3, xmm0
-    addss   xmm3, xmm1         ; t = suma+x
-    movaps  xmm4, xmm3
-    subss   xmm4, xmm0         ; b = t-suma
-    movaps  xmm5, xmm3
-    subss   xmm5, xmm4
-    movaps  xmm6, xmm0
-    subss   xmm6, xmm5
-    subss   xmm1, xmm4
-    addss   xmm6, xmm1         ; residuo = (suma-(t-b))+(x-b)
-    addss   xmm2, xmm6
-    movaps  xmm0, xmm3
+    cvtss2sd xmm1, [rdi + rax*4]   ; arr[i]: float -> double
+    addsd   xmm0, xmm1              ; acumulador += arr[i], en double
     inc     eax
     jmp     .sum_loop
-.sum_done:
-    addss   xmm0, xmm2
-    ret
 
-; ---------------------------------------------------------------
-; void compute_stats(const float *arr, int n,
-;                     float *mean, float *var, float *min, float *max)
-;   rdi = arr, esi = n, rdx = mean*, rcx = var*, r8 = min*, r9 = max*
-;
-;   var = varianza POBLACIONAL = sum((x - mean)^2) / n
-;   Caso borde: si n == 0, escriba 0.0 en mean/var/min/max.
-;
-; TODO (estudiante):
-;   1) Calcular mean = suma(arr) / n. Puede reutilizar sum_array con
-;      'call sum_array', pero recuerde que eso destruye los
-;      registros caller-saved (rax, rcx, rdx, rsi, rdi, r8-r11):
-;      guarde arr/n/mean*/var*/min*/max* en registros callee-saved
-;      (rbx, r12-r15) ANTES de llamar.
-;   2) Recorrer el arreglo una segunda vez para acumular
-;      sum((x - mean)^2) y obtener var = esa suma / n.
-;   3) Recorrer el arreglo (puede combinarlo con el paso 1) llevando
-;      min y max con comiss + saltos condicionales (ja/jb, etc.)
-;      o con las instrucciones minss/maxss.
-;   4) Guardar los resultados en las direcciones recibidas por
-;      puntero: [rdx]=mean, [rcx]=var, [r8]=min, [r9]=max.
-;   5) No olvide restaurar los registros callee-saved en el epilogo.
-; ---------------------------------------------------------------
+.sum_done:
+    cvtsd2ss xmm0, xmm0            ; convierto el resultado final a float
+    ret                             ; (la firma de la funcion sigue siendo float)
+
 compute_stats:
     push    rbx
     push    r12
@@ -81,123 +33,90 @@ compute_stats:
     push    r14
     push    r15
 
-    ; TODO: implementar el algoritmo descrito arriba.
+    cmp     esi, 0
+    je      .zero_case
 
+    mov    rbx, rdx
+    mov    r12, rcx
+    mov    r13, r8
+    mov    r14, r9
+    mov    r15, rdi
 
-    ; Caso borde: si n == 0, escriba 0.0 en mean/var/min/max.
-    cmp     esi, 0 ; comparo n con 0
-    je      .zero_case ; si n == 0
+    push   rsi
+    push   rsi
 
+    call    sum_array
+    pop    rsi
+    pop    rsi
 
+    cvtsi2ss xmm1, esi
+    divss   xmm0, xmm1
+    movss   [rbx], xmm0
 
-    ; Mean:
-    ; Primero vamos a guardar los punteros y el tamaño del arreglo en registros callee-saved
-    ; Solo hace falta guardar mean, var, min y max, arr y n. Este ultimo hay que guardarlo en la pila porque no hay mas registros callee-saved disponibles
-    mov    rbx, rdx ; mean
-    mov    r12, rcx ; var
-    mov    r13, r8 ; min
-    mov    r14, r9 ; max
-    mov    r15, rdi ; arr
+    mov     rdx, rbx
+    mov     rcx, r12
+    mov     r8, r13
+    mov     r9, r14
+    mov     rdi, r15
 
-    push   rsi ; Guardo n en la pila porque no hay mas registros callee-saved disponibles
-    push   rsi; para cumplir la convención de alineación de memoria de la pila, que requiere que el stack esté alineado a 16 bytes antes de llamar a una función. 
-
-    call    sum_array ; xmm0 = suma(arr)
-    pop    rsi ; Recuperamos n de la pila
-    pop    rsi ; Recuperamos n de la pila
-
-    ;en xmm0 tengo la suma, ahora calculo mean = suma(arr) / n
-    cvtsi2ss xmm1, esi ; Convertir n a float y lo guardo en xmm1. Uso solo la parte baja de rsi (esi) porque es un entero de 32 bits, en los otros 32 bits superiores de rsi hay basura.
-    divss   xmm0, xmm1 ; mean = suma(arr) / n Listo
-    movss   [rbx], xmm0 ; Guardo mean en la dirección apuntada por mean*
-
-    ; cvtsi2ss: Convert Scalar Integer to Scalar Single-Precision Floating-Point Value
-
-    ;Ahora recupero lo que habia guardado en los registros callee-saved, ya no se va a usar ninguna otra call
-    mov     rdx, rbx ; mean*
-    mov     rcx, r12 ; var*
-    mov     r8, r13 ; min*
-    mov     r9, r14 ; max*
-    mov     rdi, r15 ; arr
-
-
-    ; Varianza: Aquí sí hay que hacer el bucle a mano. sum((x - mean)^2) y obtener var = esa suma / n.
-
-    .var_array:
-        xor     eax, eax  ; i =0
-        xorps   xmm0, xmm0 ; acumulador = 0.0
-        xorps   xmm2, xmm2 ; compensacion de la suma de cuadrados
+    xor     eax, eax
+    xorpd   xmm0, xmm0          ; acumulador EN DOUBLE = 0.0
+    cvtss2sd xmm2, [rbx]        ; mean (float) -> double, se lee UNA vez
+                                 ; y se reutiliza en cada vuelta del bucle
 
     .var_loop:
-        cmp     eax, esi ; comparo i con n
-        jge     .var_done ; terminA si i >= n
-        movss   xmm1, [rdi + rax*4] ; arr[i]
-        subss   xmm1, [rbx] ; arr[i] - mean
-        mulss   xmm1, xmm1 ; (arr[i] - mean)^2
-        subss   xmm1, xmm2
-        movss   xmm3, xmm0
-        addss   xmm3, xmm1
-        movss   xmm2, xmm3
-        subss   xmm2, xmm0
-        subss   xmm2, xmm1
-        movss   xmm0, xmm3
+        cmp     eax, esi
+        jge     .var_done
+        cvtss2sd xmm1, [rdi + rax*4]   ; arr[i]: float -> double
+        subsd   xmm1, xmm2               ; (arr[i] - mean), en double
+        mulsd   xmm1, xmm1               ; (arr[i] - mean)^2, en double
+        addsd   xmm0, xmm1               ; acumulador += eso, en double
         inc     eax
         jmp     .var_loop
 
     .var_done:
-    ; Ahora calculo var = acumulador / n
-    cvtsi2ss xmm1, esi ; Convertir n a float y lo guardo en xmm1
-    divss   xmm0, xmm1 ; var = acumulador / n
-    movss   [rcx], xmm0 ; Guardo var en la dirección apuntada por var*
+    cvtsi2sd xmm1, esi
+    divsd   xmm0, xmm1          ; var = acumulador / n, en double
+    cvtsd2ss xmm0, xmm0         ; convierto el resultado final a float
+    movss   [rcx], xmm0
 
+    movss   xmm0, [rdi]
+    movss   xmm1, [rdi]
 
-    ; min y max
-    ; Primero inicializo min y max con el primer elemento del arreglo
-    ; Se hace otro loop que recorre el arreglo y va comparando cada elemento con min y max, actualizando según corresponda
-    movss   xmm0, [rdi] ; min = arr[0] rdi es la dirección base, sin offset
-    movss   xmm1, [rdi] ; max = arr[0]
-
-    .min_max:
-        mov     eax, 1  ; i = 1 Para empezar desde el segundo elemento del arreglo
+    mov     eax, 1
     .min_max_loop:
-        cmp     eax, esi ; comparo i con n
-        jge     .min_max_done ; termina si i >= n
-        movss   xmm2, [rdi + rax*4] ; arr[i]
-        comiss  xmm2, xmm0 ; comparo arr[i] con min
-        ; Comiss: Compare Scalar Ordered Single-Precision Floating-Point Values
-        jb      .update_min ; si arr[i] < min, actualizo min
-        comiss  xmm2, xmm1 ; comparo arr[i] con max
-        ja      .update_max ; si arr[i] > max, actualizo max
-        inc     eax 
+        cmp     eax, esi
+        jge     .min_max_done
+        movss   xmm2, [rdi + rax*4]
+        comiss  xmm2, xmm0
+        jb      .update_min
+        comiss  xmm2, xmm1
+        ja      .update_max
+        inc     eax
         jmp     .min_max_loop
 
     .update_min:
-        movss   xmm0, xmm2 ; min = arr[i]
+        movss   xmm0, xmm2
         inc     eax
-        jmp     .min_max_loop  
+        jmp     .min_max_loop
 
     .update_max:
-        movss   xmm1, xmm2 ; max = arr[i]
+        movss   xmm1, xmm2
         inc     eax
         jmp     .min_max_loop
 
     .min_max_done:
-    movss   [r8], xmm0 ; Guardo min en la dirección apuntada por min*
-    movss   [r9], xmm1 ; Guardo max en la dirección apuntada por max*
-
-    ;NOTA: Este bucle de min y max podría haberse hecho junto con el de var, pero por orden y claridad lo hice aparte.
+    movss   [r8], xmm0
+    movss   [r9], xmm1
 
     jmp    .done
 
-
     .zero_case:
-    ; Caso borde: si n == 0, escriba 0.0 en mean/var/min/max.
-    xorps xmm0, xmm0    ; xmm0 = 0.0
-    movss   [rdx], xmm0 ; mean = 0.0
-    movss   [rcx], xmm0 ; var = 0.0
-    movss   [r8], xmm0 ; min = 0.0
-    movss   [r9], xmm0 ; max = 0.0  
-
+    xorps xmm0, xmm0
+    movss   [rdx], xmm0
+    movss   [rcx], xmm0
+    movss   [r8], xmm0
+    movss   [r9], xmm0
 
     .done:
     pop     r15
@@ -207,53 +126,35 @@ compute_stats:
     pop     rbx
     ret
 
-; ---------------------------------------------------------------
-; void normalize_array(const float *in, float *out, int n,
-;                       float mean, float stddev)
-;   rdi = in, rsi = out, edx = n, xmm0 = mean, xmm1 = stddev
-;
-;   out[i] = (in[i] - mean) / stddev
-;   Caso borde: si stddev == 0.0, copie in[i] en out[i] tal cual
-;   (evite division por cero).
-;
-; TODO (estudiante): implementar el bucle escalar.
-; Sugerencia: guarde mean (xmm0) y stddev (xmm1) en registros que no
-; se sobrescriban dentro del bucle (por ejemplo xmm8/xmm9, que en
-; System V no se usan para pasar argumentos), o vuelva a cargarlos
-; en cada iteracion desde una copia guardada en la pila.
-; ---------------------------------------------------------------
 normalize_array:
-    ; TODO: implementar el bucle escalar.
+    movaps  xmm8, xmm0
+    movaps  xmm9, xmm1
 
-    ; Aceptando la sugerencia, guardo mean y stddev en xmm8 y xmm9 respectivamente
-    movaps  xmm8, xmm0 ; Guardar mean en xmm8
-    movaps  xmm9, xmm1 ; Guardar stddev en xmm9
+    xor     eax, eax
 
-    xor     eax, eax ; i = 0
-
-    xorps   xmm2, xmm2 ; xmm2 = 0.0, lo uso para comparar con stddev
-    comiss  xmm9, xmm2 ; comparo stddev con 0.0
-    je      .copy_in ; si stddev == 0.0, copiar in[i] en out[i]
+    xorps   xmm2, xmm2
+    comiss  xmm9, xmm2
+    je      .copy_in
 
 .normalize_loop:
-    cmp     eax, edx ; comparo i con n Lo bueno es que si n == 0, el bucle no se ejecuta y termina inmediatamente
-    jge     .normalize_done ; termina si i >= n
-    movss   xmm2, [rdi + rax*4] ; in[i]
-    subss   xmm2, xmm8 ; in[i] - mean
-    
-    divss   xmm2, xmm9 ; (in[i] - mean) / stddev
-    movss   [rsi + rax*4], xmm2 ; out[i] = (in[i] - mean) / stddev
+    cmp     eax, edx
+    jge     .normalize_done
+    movss   xmm2, [rdi + rax*4]
+    subss   xmm2, xmm8
+    divss   xmm2, xmm9
+    movss   [rsi + rax*4], xmm2
     inc     eax
     jmp     .normalize_loop
 
 .copy_in:
-    cmp     eax, edx ; comparo i con n
-    jge     .normalize_done ; termina si i >= n
-    movss   xmm2, [rdi + rax*4] ; in[i]
-    movss   [rsi + rax*4], xmm2 ; out[i] = in[i] (simplemente copia)
+    cmp     eax, edx
+    jge     .normalize_done
+    movss   xmm2, [rdi + rax*4]
+    movss   [rsi + rax*4], xmm2
     inc     eax
     jmp     .copy_in
 
 .normalize_done:
     ret
+
 section .note.GNU-stack noalloc noexec nowrite progbits

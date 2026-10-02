@@ -1,0 +1,1 @@
+N=100000: resultados fuera de tolerancia; consulte /home/feren/Proyectos/Proyecto1/Repo/P1-Arqui-/proyecto_vectorial/proyecto_vectorial/benchmark/results/run-mlp9sepk/verification_100000.log. No se publicara un resumen de rendimiento valido.

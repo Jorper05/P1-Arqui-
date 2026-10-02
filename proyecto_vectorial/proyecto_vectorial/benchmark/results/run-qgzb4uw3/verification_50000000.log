@@ -1,0 +1,16 @@
+
+Caso: input.dat, N=50000000
+[PASS] sum_array
+  var: Expected=3332.70801 Scalar=3332.70801 AVX2=3314.33521
+  stddev: Expected=57.7296104 Scalar=57.7296104 AVX2=57.5702629
+[FAIL] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[FAIL] normalizacion: AVX2 contra NumPy
+  AVX2: indice=0, Expected=-1.550843, obtenido=-1.55513561, discrepancias=50000000
+[FAIL] normalizacion: Scalar/AVX2 entre versiones
+  Scalar/AVX2: indice=0, Expected=-1.55513561, obtenido=-1.550843, discrepancias=50000000
+[FAIL] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+RESULTADO GENERAL: FALLA; casos fallidos=1

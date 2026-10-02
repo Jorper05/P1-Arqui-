@@ -1,0 +1,126 @@
+Generado '/tmp/verify-inputs-xzjvsfek/input_0_random.dat' con N=0, modo=random, bytes=4
+Generado '/tmp/verify-inputs-xzjvsfek/input_1_random.dat' con N=1, modo=random, bytes=8
+Generado '/tmp/verify-inputs-xzjvsfek/input_7_random.dat' con N=7, modo=random, bytes=32
+Generado '/tmp/verify-inputs-xzjvsfek/input_8_random.dat' con N=8, modo=random, bytes=36
+Generado '/tmp/verify-inputs-xzjvsfek/input_15_random.dat' con N=15, modo=random, bytes=64
+Generado '/tmp/verify-inputs-xzjvsfek/input_16_random.dat' con N=16, modo=random, bytes=68
+Generado '/tmp/verify-inputs-xzjvsfek/input_1000_random.dat' con N=1000, modo=random, bytes=4004
+Generado '/tmp/verify-inputs-xzjvsfek/input_16_constant.dat' con N=16, modo=constant, bytes=68
+Generado '/tmp/verify-inputs-xzjvsfek/input_16_edge.dat' con N=16, modo=edge, bytes=68
+Generado '/tmp/verify-inputs-xzjvsfek/input_15_edge.dat' con N=15, modo=edge, bytes=64
+
+Caso: input_0_random.dat, N=0
+[PASS] Scalar: rechazo controlado de N=0 (codigo=1)
+[PASS] AVX2: rechazo controlado de N=0 (codigo=1)
+
+Caso: input_1_random.dat, N=1
+[PASS] sum_array
+[PASS] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[PASS] normalizacion: AVX2 contra NumPy
+[PASS] normalizacion: Scalar/AVX2 entre versiones
+[PASS] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_7_random.dat, N=7
+[PASS] sum_array
+[PASS] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[PASS] normalizacion: AVX2 contra NumPy
+[PASS] normalizacion: Scalar/AVX2 entre versiones
+[PASS] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_8_random.dat, N=8
+[PASS] sum_array
+[PASS] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[PASS] normalizacion: AVX2 contra NumPy
+[PASS] normalizacion: Scalar/AVX2 entre versiones
+[PASS] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_15_random.dat, N=15
+[PASS] sum_array
+[PASS] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[PASS] normalizacion: AVX2 contra NumPy
+[PASS] normalizacion: Scalar/AVX2 entre versiones
+[PASS] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_16_random.dat, N=16
+[PASS] sum_array
+[PASS] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[PASS] normalizacion: AVX2 contra NumPy
+[PASS] normalizacion: Scalar/AVX2 entre versiones
+[PASS] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_1000_random.dat, N=1000
+[PASS] sum_array
+[PASS] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[PASS] normalizacion: AVX2 contra NumPy
+[PASS] normalizacion: Scalar/AVX2 entre versiones
+[PASS] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_16_constant.dat, N=16
+[PASS] sum_array
+[PASS] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[PASS] normalizacion: AVX2 contra NumPy
+[PASS] normalizacion: Scalar/AVX2 entre versiones
+[PASS] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_16_edge.dat, N=16
+[PASS] sum_array
+[PASS] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[PASS] normalizacion: AVX2 contra NumPy
+[PASS] normalizacion: Scalar/AVX2 entre versiones
+[PASS] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: input_15_edge.dat, N=15
+[PASS] sum_array
+[PASS] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[PASS] normalizacion: AVX2 contra NumPy
+[PASS] normalizacion: Scalar/AVX2 entre versiones
+[PASS] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: negative.dat, N=17
+[PASS] sum_array
+[PASS] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[PASS] normalizacion: AVX2 contra NumPy
+[PASS] normalizacion: Scalar/AVX2 entre versiones
+[PASS] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+Caso: zero_sum.dat, N=9
+[PASS] sum_array
+[PASS] compute_stats
+[PASS] normalizacion: Scalar contra NumPy
+[PASS] normalizacion: AVX2 contra NumPy
+[PASS] normalizacion: Scalar/AVX2 entre versiones
+[PASS] normalize_array
+[PASS] Scalar: formula con media/stddev propios
+[PASS] AVX2: formula con media/stddev propios
+
+RESULTADO GENERAL: PASA; casos fallidos=0
