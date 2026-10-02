@@ -1,4 +1,4 @@
-global sum_array
+    global sum_array
     global compute_stats
     global normalize_array
 
@@ -25,27 +25,13 @@ sum_array:
     jmp     .sum_vec_loop
 
 .sum_reduce:
-    ; reduccion SECUENCIAL: se vuelca ymm0 a la pila y se suma en el mismo
-    ; orden e0,e1,...,e7 que usa el bucle escalar. Asi, cuando el bucle
-    vaddpd  ymm0, ymm0, ymm2
-    sub     rsp, 32
-    vmovupd [rsp], ymm0
-    vmovsd  xmm0, [rsp]
-    vaddsd  xmm0, xmm0, [rsp+8]
-    vaddsd  xmm0, xmm0, [rsp+16]
-    vaddsd  xmm0, xmm0, [rsp+24]
-    add     rsp, 32
-
-
-    ;Antes estabamos usando 
-    ;vextractf128 xmm2, ymm0, 1     
-    ;vaddps  xmm0, xmm0, xmm2       
-    ;vhaddps xmm0, xmm0, xmm0       
-    ;vhaddps xmm0, xmm0, xmm0
-    ;pero causaba problema con la presición y el orden de los elementos, por eso se cambio a la reduccion secuencial.
-    ;Como tal el resultado es el mismo en la mayoría de casos, pero la reduccion secuencial es mas precisa y no depende del orden de los elementos.
-
-
+    ; --- reduccion horizontal en double: 8 carriles -> un escalar ---
+    ; Se mantienen los acumuladores y las sumas en double (mejor precision),
+    ; pero la reduccion es horizontal (en arbol) en lugar de secuencial.
+    vaddpd  ymm0, ymm0, ymm2       ; ymm0 = [e0+e4, e1+e5, e2+e6, e3+e7]
+    vextractf128 xmm2, ymm0, 1     ; xmm2 = mitad alta (carriles 2-3)
+    vaddpd  xmm0, xmm0, xmm2       ; xmm0 = [(e0+e4)+(e2+e6), (e1+e5)+(e3+e7)]
+    vhaddpd xmm0, xmm0, xmm0       ; xmm0[0] = suma total en double
 
 .sum_scalar_tail:
     ; --- elementos sobrantes (n % 8), uno a la vez, sin alinear ---
@@ -139,14 +125,11 @@ compute_stats:
         jmp     .var_loop
 
     .var_reduce:
-        vaddpd  ymm0, ymm0, ymm4
-        sub     rsp, 32
-        vmovupd [rsp], ymm0
-        vmovsd  xmm0, [rsp]
-        vaddsd  xmm0, xmm0, [rsp+8]
-        vaddsd  xmm0, xmm0, [rsp+16]
-        vaddsd  xmm0, xmm0, [rsp+24]
-        add     rsp, 32
+        ; --- reduccion horizontal en double: 8 carriles -> un escalar ---
+        vaddpd  ymm0, ymm0, ymm4       ; une los dos acumuladores
+        vextractf128 xmm2, ymm0, 1     ; xmm2 = mitad alta (carriles 2-3)
+        vaddpd  xmm0, xmm0, xmm2       ; 2 sumas parciales
+        vhaddpd xmm0, xmm0, xmm0       ; xmm0[0] = suma de cuadrados en double
 
     .var_scalar_tail: ;Mismo algoritmo que en la parte escalar, sin alinear
         cmp     eax, esi           ; eax = i, esi = n
@@ -160,7 +143,7 @@ compute_stats:
 
     .var_done:
         vcvtsi2sd xmm1, xmm1, esi                  ; n como double
-        vdivsd   xmm0, xmm0, xmm1                  ; Dividir suma(arr) entre n *Equivalente a divss xmm0, xmm1 pero de forma vectorial, decidí usar esta nomenclatura para que quede explicito en el codigo vectorial.
+        vdivsd   xmm0, xmm0, xmm1                  ; Dividir suma de cuadrados entre n (en double)
         vcvtsd2ss xmm0, xmm0, xmm0                 ; double -> float
         vmovss   [rcx], xmm0 ; Guardar var en [var*] Usar esta instrucción tiene el mismo efecto que movss ya que esto es un valor escalar
 

@@ -74,7 +74,7 @@ def write_svg(path, xs, ys):
     out.append(f'<rect x="{left}" y="{top}" width="{width - left - right}" height="{height - top - bottom}" '
                'fill="none" stroke="black"/>')
     for value, color, label in ((1, 'gray', 'Igual rendimiento (1x)'),
-                                (THEORETICAL_SPEEDUP, '#c0392b', 'Referencia de 8×')):
+                                (THEORETICAL_SPEEDUP, '#c0392b', 'Referencia de 8x')):
         y = py(value)
         out.append(f'<line x1="{left}" y1="{y:.1f}" x2="{width - right}" y2="{y:.1f}" stroke="{color}" '
                    'stroke-dasharray="6 4" stroke-width="1.5"/>')
@@ -108,7 +108,7 @@ def plot(directory, xs, ys):
     for x, y in zip(xs, ys):
         ax.annotate(f'{y:.2f}x', (x, y), textcoords='offset points', xytext=(0, 8), ha='center')
     ax.axhline(1, color='gray', linestyle='--', label='Igual rendimiento (1x)')
-    ax.axhline(THEORETICAL_SPEEDUP, color='#c0392b', linestyle='--', label='Referencia de 8×')
+    ax.axhline(THEORETICAL_SPEEDUP, color='#c0392b', linestyle='--', label='Referencia de 8x')
     ax.set(xscale='log', xlabel='N (elementos, escala logaritmica)', ylabel='Speedup',
            title='Rendimiento del normalizador estadistico')
     ax.set_ylim(bottom=0, top=max(THEORETICAL_SPEEDUP, max(ys)) * 1.1)

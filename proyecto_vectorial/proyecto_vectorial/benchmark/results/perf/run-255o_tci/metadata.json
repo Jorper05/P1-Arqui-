@@ -1,0 +1,30 @@
+{
+  "utc": "2026-10-02T23:22:46.699206+00:00",
+  "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.43",
+  "python": "3.14.4 (main, Aug 20 2026, 10:41:58) [GCC 15.2.0]",
+  "sizes": [
+    1000,
+    100000,
+    1000000,
+    50000000
+  ],
+  "reps": 30,
+  "seed": 123,
+  "mode": "perf",
+  "perf_runs": 3,
+  "sample_scope": "contadores del proceso completo; repeticiones del kernel por tamano indicadas en perf_reps",
+  "standard_deviation": "muestral (ddof=1)",
+  "correctness": "suite pequena y cada tamano; rtol=1e-4, atol=1e-6 solo referencia cero",
+  "perf_scope": "proceso completo, incluida E/S; las repeticiones se escalan por tamano (N*reps >= 200000000) para que el kernel domine los contadores",
+  "perf_reps": {
+    "1000": 200000,
+    "100000": 2000,
+    "1000000": 200,
+    "50000000": 30
+  },
+  "binaries_sha256": {
+    "scalar": "1d63dad259e47471ac429470bd64b3019960c27fde46dadaac3f7ddc9e1db7a5",
+    "vector": "670a95c0bab600ebfa61e054b71a59c9ea80ac18306b56f7f8fe90fc3a7a0018"
+  },
+  "commit": "6bd0bfdebe4048583bd96cef92554523cd5a09cf"
+}
