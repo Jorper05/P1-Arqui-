@@ -1,3 +1,3 @@
-Durante la realización del proyecto se implementaron los dos kernels escalar y vectorial, sin embargo durante las pruebas se encontraron casos donde se perdía la precisión al utilizar datos de tipo float, por lo que se decidió cambiar la estrategia de reducción utilizando variables de tipo double en ciertas partes del código, con el objetivo de cumplir la igualdad con respecto a referencia para el caso de N = 50000000.
+Durante el proyecto se implementaron primero los kernels escalar y vectorial con acumulación en float. Las pruebas mostraron pérdida de precisión en la varianza con N = 50 000 000 y en sumas con cancelación, por lo que se pasó a acumular en double en la suma y la varianza. 
 
-En la carpeta llamada "Códigos originales (Sin doble precisión)" se muestran los códigos originales que se desarrollaron como prueba de su implementación.
+Esta carpeta conserva los códigos originales como evidencia del desarrollo; los resultados del informe corresponden a las versiones finales.

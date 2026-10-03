@@ -1,0 +1,660 @@
+PREPARACIÓN INICIAL:
+
+
+Ubicación de líneas:
+
+grep -nE "vaddpd|vhaddpd|vaddsd|vsubpd|vsubsd|vsubps|vsubss|vminps|vminss|\.normalize_done" asm/vector/stats_vector.asm
+22:    vaddpd  ymm0, ymm0, ymm1       ; acumula por carril
+23:    vaddpd  ymm2, ymm2, ymm3
+31:    vaddpd  ymm0, ymm0, ymm2       ; ymm0 = [e0+e4, e1+e5, e2+e6, e3+e7]
+33:    vaddpd  xmm0, xmm0, xmm2       ; xmm0 = [(e0+e4)+(e2+e6), (e1+e5)+(e3+e7)]
+34:    vhaddpd xmm0, xmm0, xmm0       ; xmm0[0] = suma total en double
+41:    vaddsd  xmm0, xmm0, xmm1
+118:        vsubpd  ymm2, ymm2, ymm1    ; (x - mean)
+119:        vsubpd  ymm3, ymm3, ymm1
+122:        vaddpd  ymm0, ymm0, ymm2    ; acumular la suma de los cuadrados
+123:        vaddpd  ymm4, ymm4, ymm3
+129:        vaddpd  ymm0, ymm0, ymm4       ; une los dos acumuladores
+131:        vaddpd  xmm0, xmm0, xmm2       ; 2 sumas parciales
+132:        vhaddpd xmm0, xmm0, xmm0       ; xmm0[0] = suma de cuadrados en double
+138:        vsubsd  xmm2, xmm2, xmm1                   ; (x - mean) en double
+140:        vaddsd  xmm0, xmm0, xmm2    ; acumular
+151:    ; Funciones vminps y vmaxps para calcular min y max de 8 elementos a la vez, luego se hace una reduccion horizontal para obtener el min y max final, y finalmente se hace un bucle escalar para los elementos sobrantes.
+170:        vminps  ymm0, ymm0, ymm2    ; min = min(min, arr[i])
+178:        vminps  xmm0, xmm0, xmm2       ; xmm0 = min(min[0-3], min[4-7])
+184:        vminps  xmm0, xmm0, xmm2       ; min = min(min[0], min[1]), min(min[2], min[3])
+186:        vminps  xmm0, xmm0, xmm2       ; min = min(min[0], min[1], min[2], min[3])
+200:        vminss  xmm0, xmm0, xmm2 ; min = min(min, arr[i])
+242:        vsubps  ymm2, ymm2, ymm0 ; (in[i] - mean)
+250:        jge    .normalize_done
+252:        vsubss  xmm2, xmm3, xmm8 ; (in[i] - mean)
+260:    jge     .normalize_done ; termina si i >= n
+266:    .normalize_done:
+
+
+
+
+
+ 
+Versión de GDB: (Solo cambiar lo relacionado a GDB ya que mi compañero fue el que hizo el resto de pruebas con su máquina)
+gdb --version | head -1; lsb_release -d; nasm -v; gcc --version | head -1
+GNU gdb (Ubuntu 17.1-2ubuntu1) 17.1
+Description:    Ubuntu 26.04 LTS
+NASM version 3.01
+gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+
+
+
+
+0. Preparación (una sola vez)
+make clean
+rm -rf obj bin
+
+make
+python3 tools/gen_input.py 15 data/input_n15.dat random
+lscpu | grep "Model name"
+Generado 'data/input_n15.dat' con N=15, modo=random, bytes=64
+Model name:                              AMD Ryzen 5 5600H with Radeon Graphics
+
+
+
+1. Salidas normales, sin GDB
+
+feren@LaptopSebas:~/Proyectos/Proyecto1/Repo/P1-Arqui-/proyecto_vectorial/proyecto_vectorial$ ./bin/norm_scalar data/input_n16.dat data/out_n16_scalar.dat 1
+N        = 16
+Suma     = -230.148071
+Media    = -14.384254
+Varianza = 4002.573486
+StdDev   = 63.265896
+Minimo   = -99.996712
+Maximo   = 96.041298
+sum_array: 0.004158000 ms (desviacion muestral: 0.000000000 ms)
+compute_stats: 0.002705000 ms (desviacion muestral: 0.000000000 ms)
+normalize_array: 0.003527000 ms (desviacion muestral: 0.000000000 ms)
+Tiempo promedio del kernel (1 rep.): 0.010390 ms
+Desviacion muestral del kernel: 0.000000000 ms
+Ciclos TSC promedio del kernel: 14751.000 (desviacion muestral: 0.000)
+feren@LaptopSebas:~/Proyectos/Proyecto1/Repo/P1-Arqui-/proyecto_vectorial/proyecto_vectorial$ ./bin/norm_vector data/input_n16.dat data/out_n16.dat 1
+N        = 16
+Suma     = -230.148071
+Media    = -14.384254
+Varianza = 4002.573486
+StdDev   = 63.265896
+Minimo   = -99.996712
+Maximo   = 96.041298
+sum_array: 0.002795000 ms (desviacion muestral: 0.000000000 ms)
+compute_stats: 0.002495000 ms (desviacion muestral: 0.000000000 ms)
+normalize_array: 0.002495000 ms (desviacion muestral: 0.000000000 ms)
+Tiempo promedio del kernel (1 rep.): 0.007785 ms
+Desviacion muestral del kernel: 0.000000000 ms
+Ciclos TSC promedio del kernel: 12573.000 (desviacion muestral: 0.000)
+feren@LaptopSebas:~/Proyectos/Proyecto1/Repo/P1-Arqui-/proyecto_vectorial/proyecto_vectorial$ ./bin/norm_vector data/input_n16.dat data/out_n16.dat 1
+N        = 16
+Suma     = -230.148071
+Media    = -14.384254
+Varianza = 4002.573486
+StdDev   = 63.265896
+Minimo   = -99.996712
+Maximo   = 96.041298
+sum_array: 0.003697000 ms (desviacion muestral: 0.000000000 ms)
+compute_stats: 0.002986000 ms (desviacion muestral: 0.000000000 ms)
+normalize_array: 0.002996000 ms (desviacion muestral: 0.000000000 ms)
+Tiempo promedio del kernel (1 rep.): 0.009679 ms
+Desviacion muestral del kernel: 0.000000000 ms
+Ciclos TSC promedio del kernel: 15378.000 (desviacion muestral: 0.000)
+feren@LaptopSebas:~/Proyectos/Proyecto1/Repo/P1-Arqui-/proyecto_vectorial/proyecto_vectorial$ ./bin/norm_vector data/input_n15.dat data/out_n15.dat 1
+N        = 15
+Suma     = 6.889746
+Media    = 0.459316
+Varianza = 2547.619873
+StdDev   = 50.473953
+Minimo   = -79.573189
+Maximo   = 78.749321
+sum_array: 0.003637000 ms (desviacion muestral: 0.000000000 ms)
+compute_stats: 0.002995000 ms (desviacion muestral: 0.000000000 ms)
+normalize_array: 0.002936000 ms (desviacion muestral: 0.000000000 ms)
+Tiempo promedio del kernel (1 rep.): 0.009568 ms
+Desviacion muestral del kernel: 0.000000000 ms
+Ciclos TSC promedio del kernel: 15180.000 (desviacion muestral: 0.000)
+
+
+
+2. Sesión A: acumuladores y reducción de sum_array (N = 16)
+
+gdb --args ./bin/norm_vector data/input_n16.dat data/out_n16.dat 1
+
+
+(gdb) set pagination off
+(gdb) set confirm off
+(gdb) set disassembly-flavor intel
+(gdb) break stats_vector.asm:24
+Breakpoint 1 at 0x3bca: file asm/vector/stats_vector.asm, line 24.
+(gdb) break stats_vector.asm:31
+Breakpoint 2 at 0x3bcf: file asm/vector/stats_vector.asm, line 31.
+(gdb) run
+Starting program: /home/feren/Proyectos/Proyecto1/Repo/P1-Arqui-/proyecto_vectorial/proyecto_vectorial/bin/norm_vector data/input_n16.dat data/out_n16.dat 1
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Breakpoint 1, sum_array.sum_vec_loop () at asm/vector/stats_vector.asm:24
+24          add     eax, 8
+(gdb) x/i $pc
+=> 0x555555557bca <sum_array.sum_vec_loop+23>:  add    eax,0x8
+(gdb) x/16fw $rdi
+0x55555555c200: -42.2642708     -78.5689087     74.8392944      -10.674119
+0x55555555c210: -5.94248104     -99.9967117     -75.2702713     -77.586792
+0x55555555c220: 75.9329071      70.856781       -22.635313      16.237875
+0x55555555c230: -15.2736158     -97.1709213     96.0412979      -38.6728249
+(gdb) print $ymm0.v4_double
+$1 = {-42.264270782470703, -78.56890869140625, 74.83929443359375, -10.674118995666504}
+(gdb) print $ymm2.v4_double
+$2 = {-5.9424810409545898, -99.996711730957031, -75.270271301269531, -77.5867919921875}
+(gdb) continue
+Continuing.
+
+Breakpoint 1, sum_array.sum_vec_loop () at asm/vector/stats_vector.asm:24
+24          add     eax, 8
+(gdb) print $ymm0.v4_double
+$3 = {33.668636322021484, -7.712127685546875, 52.203981399536133, 5.563755989074707}
+(gdb) print $ymm0.v4_double
+$4 = {33.668636322021484, -7.712127685546875, 52.203981399536133, 5.563755989074707}
+(gdb) print $ymm2.v4_double
+$5 = {-21.216096878051758, -197.16763305664062, 20.771026611328125, -116.25961685180664}
+(gdb) continue
+Continuing.
+
+Breakpoint 2, sum_array.sum_reduce () at asm/vector/stats_vector.asm:31
+31          vaddpd  ymm0, ymm0, ymm2       ; ymm0 = [e0+e4, e1+e5, e2+e6, e3+e7]
+(gdb) print $ymm0.v4_double
+$6 = {33.668636322021484, -7.712127685546875, 52.203981399536133, 5.563755989074707}
+(gdb) print $ymm2.v4_double
+$7 = {-21.216096878051758, -197.16763305664062, 20.771026611328125, -116.25961685180664}
+(gdb) tbreak stats_vector.asm:34
+Temporary breakpoint 3 at 0x555555557bdd: file asm/vector/stats_vector.asm, line 34.
+(gdb) continue
+Continuing.
+
+Temporary breakpoint 3, sum_array.sum_reduce () at asm/vector/stats_vector.asm:34
+34          vhaddpd xmm0, xmm0, xmm0       ; xmm0[0] = suma total en double
+(gdb) print $xmm0.v2_double
+$8 = {85.427547454833984, -315.57562160491943}
+(gdb) stepi
+sum_array.sum_scalar_tail () at asm/vector/stats_vector.asm:38
+38          cmp     eax, esi
+(gdb) print $xmm0.v2_double
+$9 = {-230.14807415008545, -230.14807415008545}
+(gdb) tbreak stats_vector.asm:47
+Temporary breakpoint 4 at 0x555555557bf6: file asm/vector/stats_vector.asm, line 47.
+(gdb) continue
+Continuing.
+
+Temporary breakpoint 4, sum_array.sum_done () at asm/vector/stats_vector.asm:47
+47          vzeroupper                     ; evita penalizacion de transicion AVX/SSE
+(gdb) print $xmm0.v4_float[0]
+$10 = -230.148071
+(gdb) delete
+(gdb) continue
+Continuing.
+N        = 16
+Suma     = -230.148071
+Media    = -14.384254
+Varianza = 4002.573486
+StdDev   = 63.265896
+Minimo   = -99.996712
+Maximo   = 96.041298
+sum_array: 161368.561843000 ms (desviacion muestral: 0.000000000 ms)
+compute_stats: 0.003376000 ms (desviacion muestral: 0.000000000 ms)
+normalize_array: 0.003156000 ms (desviacion muestral: 0.000000000 ms)
+Tiempo promedio del kernel (1 rep.): 161368.568375 ms
+Desviacion muestral del kernel: 0.000000000 ms
+Ciclos TSC promedio del kernel: 531504770545.000 (desviacion muestral: 0.000)
+[Inferior 1 (process 25021) exited normally]
+
+
+
+3. Sesión B: varianza (N = 16)
+
+
+gdb --args ./bin/norm_vector data/input_n16.dat data/out_n16.dat 1
+
+
+
+(gdb) set pagination off
+(gdb) set confirm off
+(gdb) set disassembly-flavor intel
+(gdb) break stats_vector.asm:124
+Breakpoint 1 at 0x3c9c: file asm/vector/stats_vector.asm, line 124.
+(gdb) break stats_vector.asm:132
+Breakpoint 2 at 0x3caf: file asm/vector/stats_vector.asm, line 132.
+(gdb) break stats_vector.asm:147
+Breakpoint 3 at 0x3cd4: file asm/vector/stats_vector.asm, line 147.
+(gdb) run
+Starting program: /home/feren/Proyectos/Proyecto1/Repo/P1-Arqui-/proyecto_vectorial/proyecto_vectorial/bin/norm_vector data/input_n16.dat data/out_n16.dat 1
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Breakpoint 1, compute_stats.var_loop () at asm/vector/stats_vector.asm:124
+124             add     eax, 8              ; Incrementar el índice en 8
+(gdb) x/i $pc
+=> 0x555555557c9c <compute_stats.var_loop+40>:  add    eax,0x8
+(gdb) print $ymm1.v4_double
+$1 = {-14.384254455566406, -14.384254455566406, -14.384254455566406, -14.384254455566406}
+(gdb) print $ymm0.v4_double
+$2 = {777.29531038845016, 4119.6698393743136, 7960.8416763763526, 13.76510513080666}
+(gdb) print $ymm4.v4_double
+$3 = {71.263538383646846, 7329.4928407305852, 3707.1070473352447, 3994.5607510679984}
+(gdb) continue
+Continuing.
+
+Breakpoint 1, compute_stats.var_loop () at asm/vector/stats_vector.asm:124
+124             add     eax, 8              ; Incrementar el índice en 8
+(gdb) print $ymm0.v4_double
+$4 = {8934.4849826541758, 11385.703965910361, 8028.921644042046, 951.47991658976116}
+(gdb) print $ymm4.v4_double
+$5 = {72.054502050605151, 14183.125052194344, 15900.909663149389, 4584.4954033406248}
+(gdb) continue
+Continuing.
+
+Breakpoint 2, compute_stats.var_reduce () at asm/vector/stats_vector.asm:132
+132             vhaddpd xmm0, xmm0, xmm0       ; xmm0[0] = suma de cuadrados en double
+(gdb) print $xmm0.v2_double
+$6 = {32936.370791896217, 31104.80433803509}
+(gdb) stepi
+compute_stats.var_scalar_tail () at asm/vector/stats_vector.asm:135
+135             cmp     eax, esi           ; eax = i, esi = n
+(gdb) print $xmm0.v2_double[0]
+$7 = 64041.175129931304
+(gdb) continue
+Continuing.
+
+Breakpoint 3, compute_stats.var_done () at asm/vector/stats_vector.asm:147
+147             vcvtsd2ss xmm0, xmm0, xmm0                 ; double -> float
+(gdb) print $xmm0.v2_double[0]
+$8 = 4002.5734456207065
+(gdb) stepi
+148             vmovss   [rcx], xmm0 ; Guardar var en [var*] Usar esta instrucción tiene el mismo efecto que movss ya que esto es un valor escalar
+(gdb) print $xmm0.v4_float[0]
+$9 = 4002.57349
+(gdb) stepi
+152         xor eax, eax ; i = 0
+(gdb) x/fw $rcx
+0x7fffffffdc64: 4002.57349
+(gdb) delete
+(gdb) continue
+Continuing.
+N        = 16
+Suma     = -230.148071
+Media    = -14.384254
+Varianza = 4002.573486
+StdDev   = 63.265896
+Minimo   = -99.996712
+Maximo   = 96.041298
+sum_array: 0.002936000 ms (desviacion muestral: 0.000000000 ms)
+compute_stats: 99050.987657000 ms (desviacion muestral: 0.000000000 ms)
+normalize_array: 0.003046000 ms (desviacion muestral: 0.000000000 ms)
+Tiempo promedio del kernel (1 rep.): 99050.993639 ms
+Desviacion muestral del kernel: 0.000000000 ms
+Ciclos TSC promedio del kernel: 326247395034.000 (desviacion muestral: 0.000)
+[Inferior 1 (process 25045) exited normally]
+
+
+
+4. Sesión C: normalize_array (N = 16)
+
+(gdb) break normalize_array
+Breakpoint 4 at 0x555555557d6f: file asm/vector/stats_vector.asm, line 221.
+(gdb) break stats_vector.asm:227
+Breakpoint 5 at 0x555555557d81: file asm/vector/stats_vector.asm, line 227.
+(gdb) break stats_vector.asm:267
+Breakpoint 6 at 0x555555557de3: file asm/vector/stats_vector.asm, line 267.
+(gdb) run
+Starting program: /home/feren/Proyectos/Proyecto1/Repo/P1-Arqui-/proyecto_vectorial/proyecto_vectorial/bin/norm_vector data/input_n16.dat data/out_n16.dat 1
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Breakpoint 4, normalize_array () at asm/vector/stats_vector.asm:221
+221         movaps  xmm8, xmm0 ; Guardar mean en xmm8 (backup, se usara en la cola escalar)
+(gdb) print $ymm0.v8_float
+$10 = {-14.3842545, 0, 0, 0, 0, 0, 0, 0}
+(gdb) continue
+Continuing.
+
+Breakpoint 5, normalize_array () at asm/vector/stats_vector.asm:227
+227         xor     eax, eax ; i = 0
+(gdb) print $ymm0.v8_float
+$11 = {-14.3842545, -14.3842545, -14.3842545, -14.3842545, -14.3842545, -14.3842545, -14.3842545, -14.3842545}
+(gdb) print $ymm1.v8_float
+$12 = {63.2658958, 63.2658958, 63.2658958, 63.2658958, 63.2658958, 63.2658958, 63.2658958, 63.2658958}
+(gdb) continue
+Continuing.
+
+Breakpoint 6, normalize_array.normalize_done () at asm/vector/stats_vector.asm:267
+267         vzeroupper
+(gdb) x/16fw $rsi
+0x55555555b520: -0.440680027    -1.01452219     1.41029453      0.0586435311
+0x55555555b530: 0.133433238     -1.35321653     -0.962382913    -0.998998523
+0x55555555b540: 1.4275806       1.34734571      -0.130418748    0.484022707
+0x55555555b550: -0.0140575171   -1.30855119     1.74541986      -0.383912534
+(gdb) delete
+(gdb) continue
+Continuing.
+N        = 16
+Suma     = -230.148071
+Media    = -14.384254
+Varianza = 4002.573486
+StdDev   = 63.265896
+Minimo   = -99.996712
+Maximo   = 96.041298
+sum_array: 0.003477000 ms (desviacion muestral: 0.000000000 ms)
+compute_stats: 0.002996000 ms (desviacion muestral: 0.000000000 ms)
+normalize_array: 41695.072622000 ms (desviacion muestral: 0.000000000 ms)
+Tiempo promedio del kernel (1 rep.): 41695.079095 ms
+Desviacion muestral del kernel: 0.000000000 ms
+Ciclos TSC promedio del kernel: 137332390867.000 (desviacion muestral: 0.000)
+[Inferior 1 (process 25052) exited normally]
+
+
+
+
+5. Conteo de iteraciones con N = 16
+
+Vectorial:
+gdb --args ./bin/norm_vector data/input_n16.dat data/out_n16.dat 1
+
+(gdb) set pagination off
+(gdb) set confirm off
+(gdb) set disassembly-flavor intel
+
+(gdb) break stats_vector.asm:22
+Breakpoint 1 at 0x3bc2: file asm/vector/stats_vector.asm, line 22.
+(gdb) break stats_vector.asm:122
+Breakpoint 2 at 0x3c94: file asm/vector/stats_vector.asm, line 122.
+(gdb) break stats_vector.asm:170
+Breakpoint 3 at 0x3cfe: file asm/vector/stats_vector.asm, line 170.
+(gdb) break stats_vector.asm:242
+Breakpoint 4 at 0x3da3: file asm/vector/stats_vector.asm, line 242.
+(gdb) ignore 1 100000
+Will ignore next 100000 crossings of breakpoint 1.
+(gdb) ignore 2 100000
+Will ignore next 100000 crossings of breakpoint 2.
+(gdb) ignore 3 100000
+Will ignore next 100000 crossings of breakpoint 3.
+(gdb) ignore 4 100000
+Will ignore next 100000 crossings of breakpoint 4.
+(gdb) run
+Starting program: /home/feren/Proyectos/Proyecto1/Repo/P1-Arqui-/proyecto_vectorial/proyecto_vectorial/bin/norm_vector data/input_n16.dat data/out_n16.dat 1
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+N        = 16
+Suma     = -230.148071
+Media    = -14.384254
+Varianza = 4002.573486
+StdDev   = 63.265896
+Minimo   = -99.996712
+Maximo   = 96.041298
+sum_array: 0.539731000 ms (desviacion muestral: 0.000000000 ms)
+compute_stats: 1.092936000 ms (desviacion muestral: 0.000000000 ms)
+normalize_array: 0.359383000 ms (desviacion muestral: 0.000000000 ms)
+Tiempo promedio del kernel (1 rep.): 1.992050 ms
+Desviacion muestral del kernel: 0.000000000 ms
+Ciclos TSC promedio del kernel: 6545174.000 (desviacion muestral: 0.000)
+[Inferior 1 (process 25109) exited normally]
+(gdb) info breakpoints
+Num     Type           Disp Enb Address            What
+1       breakpoint     keep y   0x0000555555557bc2 asm/vector/stats_vector.asm:22
+        breakpoint already hit 4 times
+        ignore next 99996 hits
+2       breakpoint     keep y   0x0000555555557c94 asm/vector/stats_vector.asm:122
+        breakpoint already hit 2 times
+        ignore next 99998 hits
+3       breakpoint     keep y   0x0000555555557cfe asm/vector/stats_vector.asm:170
+        breakpoint already hit 2 times
+        ignore next 99998 hits
+4       breakpoint     keep y   0x0000555555557da3 asm/vector/stats_vector.asm:242
+        breakpoint already hit 2 times
+        ignore next 99998 hits
+
+
+
+Escalar:
+gdb --args ./bin/norm_scalar data/input_n16.dat data/out_n16_scalar.dat 1
+
+(gdb) set pagination off
+(gdb) set confirm off
+(gdb) set disassembly-flavor intel
+
+(gdb) break stats_scalar.asm:21
+Breakpoint 1 at 0x283f: file asm/scalar/stats_scalar.asm, line 21.
+(gdb) break stats_scalar.asm:73
+Breakpoint 2 at 0x28ac: file asm/scalar/stats_scalar.asm, line 73.
+(gdb) break stats_scalar.asm:91
+Breakpoint 3 at 0x28da: file asm/scalar/stats_scalar.asm, line 91.
+(gdb) break stats_scalar.asm:143
+Breakpoint 4 at 0x293f: file asm/scalar/stats_scalar.asm, line 143.
+(gdb) ignore 1 100000
+Will ignore next 100000 crossings of breakpoint 1.
+(gdb) ignore 2 100000
+Will ignore next 100000 crossings of breakpoint 2.
+(gdb) ignore 3 100000
+Will ignore next 100000 crossings of breakpoint 3.
+(gdb) ignore 4 100000
+Will ignore next 100000 crossings of breakpoint 4.
+(gdb) run
+Starting program: /home/feren/Proyectos/Proyecto1/Repo/P1-Arqui-/proyecto_vectorial/proyecto_vectorial/bin/norm_scalar data/input_n16.dat data/out_n16_scalar.dat 1
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+N        = 16
+Suma     = -230.148071
+Media    = -14.384254
+Varianza = 4002.573486
+StdDev   = 63.265896
+Minimo   = -99.996712
+Maximo   = 96.041298
+sum_array: 2.932510000 ms (desviacion muestral: 0.000000000 ms)
+compute_stats: 7.993072000 ms (desviacion muestral: 0.000000000 ms)
+normalize_array: 2.671234000 ms (desviacion muestral: 0.000000000 ms)
+Tiempo promedio del kernel (1 rep.): 13.596816 ms
+Desviacion muestral del kernel: 0.000000000 ms
+Ciclos TSC promedio del kernel: 44763576.000 (desviacion muestral: 0.000)
+[Inferior 1 (process 25131) exited normally]
+(gdb) info breakpoints
+Num     Type           Disp Enb Address            What
+1       breakpoint     keep y   0x000055555555683f asm/scalar/stats_scalar.asm:21
+        breakpoint already hit 32 times
+        ignore next 99968 hits
+2       breakpoint     keep y   0x00005555555568ac asm/scalar/stats_scalar.asm:73
+        breakpoint already hit 16 times
+        ignore next 99984 hits
+3       breakpoint     keep y   0x00005555555568da asm/scalar/stats_scalar.asm:91
+        breakpoint already hit 15 times
+        ignore next 99985 hits
+4       breakpoint     keep y   0x000055555555693f asm/scalar/stats_scalar.asm:143
+        breakpoint already hit 16 times
+        ignore next 99984 hits
+
+
+
+6. Remanente con N = 15
+Vectorial:
+
+gdb --args ./bin/norm_vector data/input_n15.dat data/out_n15.dat 1
+
+(gdb) set pagination off
+(gdb) set confirm off
+(gdb) set disassembly-flavor intel
+
+(gdb) break stats_vector.asm:22
+Breakpoint 1 at 0x3bc2: file asm/vector/stats_vector.asm, line 22.
+(gdb) break stats_vector.asm:41
+Breakpoint 2 at 0x3bea: file asm/vector/stats_vector.asm, line 41.
+(gdb) break stats_vector.asm:122
+Breakpoint 3 at 0x3c94: file asm/vector/stats_vector.asm, line 122.
+(gdb) break stats_vector.asm:138
+Breakpoint 4 at 0x3cbc: file asm/vector/stats_vector.asm, line 138.
+(gdb) break stats_vector.asm:170
+Breakpoint 5 at 0x3cfe: file asm/vector/stats_vector.asm, line 170.
+(gdb) break stats_vector.asm:200
+Breakpoint 6 at 0x3d4c: file asm/vector/stats_vector.asm, line 200.
+(gdb) break stats_vector.asm:242
+Breakpoint 7 at 0x3da3: file asm/vector/stats_vector.asm, line 242.
+(gdb) break stats_vector.asm:252
+Breakpoint 8 at 0x3dbe: file asm/vector/stats_vector.asm, line 252.
+(gdb) ignore 1 100000
+Will ignore next 100000 crossings of breakpoint 1.
+(gdb) ignore 2 100000
+Will ignore next 100000 crossings of breakpoint 2.
+(gdb) ignore 3 100000
+Will ignore next 100000 crossings of breakpoint 3.
+(gdb) ignore 4 100000
+Will ignore next 100000 crossings of breakpoint 4.
+(gdb) ignore 5 100000
+Will ignore next 100000 crossings of breakpoint 5.
+(gdb) ignore 6 100000
+Will ignore next 100000 crossings of breakpoint 6.
+(gdb) ignore 7 100000
+Will ignore next 100000 crossings of breakpoint 7.
+(gdb) ignore 8 100000
+Will ignore next 100000 crossings of breakpoint 8.
+(gdb) run
+Starting program: /home/feren/Proyectos/Proyecto1/Repo/P1-Arqui-/proyecto_vectorial/proyecto_vectorial/bin/norm_vector data/input_n15.dat data/out_n15.dat 1
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+N        = 15
+Suma     = 6.889746
+Media    = 0.459316
+Varianza = 2547.619873
+StdDev   = 50.473953
+Minimo   = -79.573189
+Maximo   = 78.749321
+sum_array: 1.737380000 ms (desviacion muestral: 0.000000000 ms)
+compute_stats: 4.222470000 ms (desviacion muestral: 0.000000000 ms)
+normalize_array: 1.544243000 ms (desviacion muestral: 0.000000000 ms)
+Tiempo promedio del kernel (1 rep.): 7.504093 ms
+Desviacion muestral del kernel: 0.000000000 ms
+Ciclos TSC promedio del kernel: 24697563.000 (desviacion muestral: 0.000)
+[Inferior 1 (process 25157) exited normally]
+(gdb) info breakpoints
+Num     Type           Disp Enb Address            What
+1       breakpoint     keep y   0x0000555555557bc2 asm/vector/stats_vector.asm:22
+        breakpoint already hit 2 times
+        ignore next 99998 hits
+2       breakpoint     keep y   0x0000555555557bea asm/vector/stats_vector.asm:41
+        breakpoint already hit 14 times
+        ignore next 99986 hits
+3       breakpoint     keep y   0x0000555555557c94 asm/vector/stats_vector.asm:122
+        breakpoint already hit 1 time
+        ignore next 99999 hits
+4       breakpoint     keep y   0x0000555555557cbc asm/vector/stats_vector.asm:138
+        breakpoint already hit 7 times
+        ignore next 99993 hits
+5       breakpoint     keep y   0x0000555555557cfe asm/vector/stats_vector.asm:170
+        breakpoint already hit 1 time
+        ignore next 99999 hits
+6       breakpoint     keep y   0x0000555555557d4c asm/vector/stats_vector.asm:200
+        breakpoint already hit 7 times
+        ignore next 99993 hits
+7       breakpoint     keep y   0x0000555555557da3 asm/vector/stats_vector.asm:242
+        breakpoint already hit 1 time
+        ignore next 99999 hits
+8       breakpoint     keep y   0x0000555555557dbe asm/vector/stats_vector.asm:252
+        breakpoint already hit 7 times
+        ignore next 99993 hits
+
+
+
+
+
+Escalar:
+gdb --args ./bin/norm_scalar data/input_n15.dat data/out_n15_scalar.dat 1
+
+
+(gdb) set pagination off
+(gdb) set confirm off
+(gdb) set disassembly-flavor intel
+
+
+(gdb) break stats_scalar.asm:21
+Breakpoint 1 at 0x283f: file asm/scalar/stats_scalar.asm, line 21.
+(gdb) break stats_scalar.asm:73
+Breakpoint 2 at 0x28ac: file asm/scalar/stats_scalar.asm, line 73.
+(gdb) break stats_scalar.asm:91
+Breakpoint 3 at 0x28da: file asm/scalar/stats_scalar.asm, line 91.
+(gdb) break stats_scalar.asm:143
+Breakpoint 4 at 0x293f: file asm/scalar/stats_scalar.asm, line 143.
+(gdb) ignore 1 100000
+Will ignore next 100000 crossings of breakpoint 1.
+(gdb) ignore 2 100000
+Will ignore next 100000 crossings of breakpoint 2.
+(gdb) ignore 3 100000
+Will ignore next 100000 crossings of breakpoint 3.
+(gdb) ignore 4 100000
+Will ignore next 100000 crossings of breakpoint 4.
+(gdb) run
+Starting program: /home/feren/Proyectos/Proyecto1/Repo/P1-Arqui-/proyecto_vectorial/proyecto_vectorial/bin/norm_scalar data/input_n15.dat data/out_n15_scalar.dat 1
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.ubuntu.com>
+Debuginfod has been disabled.
+To make this setting permanent, add 'set debuginfod enabled off' to .gdbinit.
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/x86_64-linux-gnu/libthread_db.so.1".
+N        = 15
+Suma     = 6.889746
+Media    = 0.459316
+Varianza = 2547.619873
+StdDev   = 50.473953
+Minimo   = -79.573189
+Maximo   = 78.749321
+sum_array: 2.601211000 ms (desviacion muestral: 0.000000000 ms)
+compute_stats: 7.214043000 ms (desviacion muestral: 0.000000000 ms)
+normalize_array: 2.421780000 ms (desviacion muestral: 0.000000000 ms)
+Tiempo promedio del kernel (1 rep.): 12.237034 ms
+Desviacion muestral del kernel: 0.000000000 ms
+Ciclos TSC promedio del kernel: 40283859.000 (desviacion muestral: 0.000)
+[Inferior 1 (process 25180) exited normally]
+(gdb) info breakpoints
+Num     Type           Disp Enb Address            What
+1       breakpoint     keep y   0x000055555555683f asm/scalar/stats_scalar.asm:21
+        breakpoint already hit 30 times
+        ignore next 99970 hits
+2       breakpoint     keep y   0x00005555555568ac asm/scalar/stats_scalar.asm:73
+        breakpoint already hit 15 times
+        ignore next 99985 hits
+3       breakpoint     keep y   0x00005555555568da asm/scalar/stats_scalar.asm:91
+        breakpoint already hit 14 times
+        ignore next 99986 hits
+4       breakpoint     keep y   0x000055555555693f asm/scalar/stats_scalar.asm:143
+        breakpoint already hit 15 times
+        ignore next 99985 hits
+
+
+
+
+
+
+
