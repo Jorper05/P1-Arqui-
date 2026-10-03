@@ -7,8 +7,17 @@ from pathlib import Path
 import statistics
 import sys
 
+# Referencia visual basada en los ocho floats de un registro YMM de 256 bits.
+# No es una prediccion ni un limite universal del speedup medido.
 THEORETICAL_SPEEDUP = 8  # AVX2: 8 floats de 32 bits por instruccion
 SUPERSCRIPT = str.maketrans('0123456789', '\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079')
+
+# Alcance: analiza tiempos y ticks TSC publicados por el driver.
+# IPC = instrucciones / ciclos de nucleo, obtenidos con perf en un mismo
+# intervalo. Este script no recibe instrucciones ni calcula IPC; los ticks
+# TSC no deben sustituir el evento cycles de perf en ese cociente.
+# Los marcadores de perf como <not supported> y <not counted> corresponden
+# al analizador analyze_perf.py, no al formato samples.csv usado aqui.
 
 
 def read_samples(directory):
@@ -16,15 +25,20 @@ def read_samples(directory):
     groups = {}
     with (directory / 'samples.csv').open(newline='') as stream:
         reader = csv.DictReader(stream)
+        # Compatibilidad con archivos sin la columna TSC: conserva None
+        # y omite los estadisticos de ciclos en las tablas posteriores.
         has_cycles = 'kernel_cycles' in (reader.fieldnames or [])
         for row in reader:
             n, index, elapsed = int(row['n']), int(row['sample']), float(row['kernel_ms'])
+            # Si la columna existe, todas sus filas deben contener un numero
+            # valido. No convierte valores ausentes o no disponibles a cero.
             cycles = float(row['kernel_cycles']) if has_cycles else None
             version = row['version']
             if (n <= 0 or index <= 0 or version not in ('scalar', 'vector')
                     or not math.isfinite(elapsed) or elapsed <= 0
                     or (has_cycles and (not math.isfinite(cycles) or cycles <= 0))):
                 raise ValueError('Muestra invalida')
+            # Agrupa por tamano y version; el indice identifica cada muestra.
             samples = groups.setdefault((n, version), {})
             if index in samples:
                 raise ValueError('Muestra duplicada')
@@ -35,6 +49,8 @@ def read_samples(directory):
 
 
 def mean_std(values):
+    # Media aritmetica y desviacion estandar MUESTRAL (divisor m-1).
+    # analyze exige al menos dos muestras para poder calcular esta desviacion.
     values = list(values)
     return statistics.mean(values), statistics.stdev(values)
 
@@ -52,6 +68,7 @@ def write_svg(path, xs, ys):
     ymax = max(THEORETICAL_SPEEDUP, max(ys)) * 1.1
 
     def px(x):
+        # Posicion horizontal logaritmica: separa los tamanos por decadas.
         return left + (math.log10(x) - low) / (high - low) * (width - left - right)
 
     def py(y):
@@ -73,6 +90,7 @@ def write_svg(path, xs, ys):
         out.append(f'<text x="{left - 8}" y="{y + 4:.1f}" text-anchor="end">{value}</text>')
     out.append(f'<rect x="{left}" y="{top}" width="{width - left - right}" height="{height - top - bottom}" '
                'fill="none" stroke="black"/>')
+    # 1x indica igualdad; 8x es solo una referencia para comparar la curva.
     for value, color, label in ((1, 'gray', 'Igual rendimiento (1x)'),
                                 (THEORETICAL_SPEEDUP, '#c0392b', 'Referencia de 8x')):
         y = py(value)
@@ -121,6 +139,7 @@ def plot(directory, xs, ys):
 
 def analyze(directory):
     directory = Path(directory)
+    # No publica un resumen valido de una ejecucion marcada como fallida.
     if (directory / 'FAILED.txt').exists():
         raise ValueError('La ejecucion fallo; no se pueden publicar sus resultados parciales')
     groups, has_cycles = read_samples(directory)
@@ -128,28 +147,37 @@ def analyze(directory):
     for n in sorted({key[0] for key in groups}):
         pair = [groups.get((n, v), {}) for v in individual]
         count = len(pair[0])
+        # Ambas versiones deben tener los mismos indices consecutivos 1..m,
+        # con m >= 2. No descarta silenciosamente muestras faltantes.
         if count < 2 or any(set(p) != set(range(1, count + 1)) for p in pair):
             raise ValueError(f'N={n}: faltan muestras pareadas y consecutivas')
         summary, cycles_summary = [], []
         for version, samples in zip(individual, pair):
+            # Resume la variacion entre muestras de cada version y tamano.
             avg, std = mean_std(s[0] for s in samples.values())
             summary.extend((avg, std))
             entry = [n, count, avg, std]
             if has_cycles:
+                # Misma estadistica para ticks TSC; no son contadores de perf.
                 c_avg, c_std = mean_std(s[1] for s in samples.values())
                 cycles_summary.extend((c_avg, c_std))
                 entry += [c_avg, c_std]
             individual[version].append(entry)
+        # Speedup = media escalar / media vectorial, no media de cocientes.
+        # >1 favorece AVX2; =1 indica igualdad; <1 favorece la version escalar.
         rows.append([n, count, *summary, summary[0] / summary[2]])
         if has_cycles:
+            # Cociente de medias TSC adicional, independiente del speedup en ms.
             cycle_rows.append([*cycles_summary, cycles_summary[0] / cycles_summary[2]])
     # Todo se valido; ahora se publican tablas y grafico.
+    # scalar.csv y vector.csv conservan medias, desviaciones y numero de muestras.
     for version, values in individual.items():
         with (directory / f'{version}.csv').open('w', newline='') as stream:
             writer = csv.writer(stream)
             writer.writerow(['n', 'samples', 'mean_ms', 'std_ms'] +
                             (['mean_cycles', 'std_cycles'] if has_cycles else []))
             writer.writerows(values)
+    # summary.csv reune ambas versiones y sus speedups por tamano.
     with (directory / 'summary.csv').open('w', newline='') as stream:
         writer = csv.writer(stream)
         writer.writerow(['n', 'samples', 'scalar_mean_ms', 'scalar_std_ms', 'vector_mean_ms',
@@ -157,6 +185,7 @@ def analyze(directory):
                         (['scalar_mean_cycles', 'scalar_std_cycles', 'vector_mean_cycles',
                           'vector_std_cycles', 'speedup_cycles'] if has_cycles else []))
         writer.writerows(row + (cycle_rows[i] if has_cycles else []) for i, row in enumerate(rows))
+    # La curva representa exclusivamente el speedup temporal de las medias.
     plot(directory, [r[0] for r in rows], [r[-1] for r in rows])
     return rows
 
@@ -168,6 +197,8 @@ def main():
     try:
         rows = analyze(args.directory)
     except (OSError, ValueError, KeyError, ImportError) as exc:
+        # Incluye columnas ausentes y valores no numericos: falla explicitamente
+        # en vez de inventar mediciones para completar el informe.
         parser.exit(1, f'Error: {exc}\n')
     print(f'Analizados {len(rows)} tamanos en {args.directory}')
 
