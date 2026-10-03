@@ -7,7 +7,13 @@ import math
 from pathlib import Path
 import statistics
 
+# Los cuatro eventos son obligatorios; cycles son ciclos de hardware de perf,
+# no ticks TSC. El significado de los eventos de cache depende de la PMU.
 EVENTS = ('cycles', 'instructions', 'cache-misses', 'cache-references')
+
+# Este analizador calcula IPC y tasas de cache, pero no speedup temporal.
+# El speedup = tiempo medio escalar / tiempo medio vectorial se obtiene en
+# analyze_results.py. Un cociente de contadores o un IPC mayor no lo sustituye.
 
 
 def parse_counters(text):
@@ -23,19 +29,26 @@ def parse_counters(text):
         if event in counters:
             raise ValueError(f'Evento duplicado: {event}')
         try:
+            # Marcadores como <not supported> o <not counted>, y campos
+            # vacios, no son numeros: se rechazan sin convertirlos a cero.
             value = float(fields[0].strip())
         except ValueError as exc:
             raise ValueError(f'Evento no disponible: {event}: {fields[0]}') from exc
+        # Cache puede tener cero eventos; NaN, infinito y negativos fallan.
         if not math.isfinite(value) or value < 0:
             raise ValueError(f'Contador invalido: {event}')
         # Los campos 4 y 5, cuando existen, son tiempo activo y porcentaje activo.
+        # Indices Python 3 y 4. La ausencia de porcentaje queda como None;
+        # no se interpreta como 100 %. No se aplica un segundo escalado aqui.
         percent = fields[4].strip().rstrip('%') if len(fields) > 4 else ''
         if percent and (not math.isfinite(float(percent)) or not 0 < float(percent) <= 100):
             raise ValueError(f'Porcentaje activo invalido: {event}')
         counters[event] = (value, float(percent) if percent else None)
+    # Un evento ausente impide publicar un resumen con informacion incompleta.
     missing = set(EVENTS) - counters.keys()
     if missing:
         raise ValueError(f'Faltan eventos: {", ".join(sorted(missing))}')
+    # Garantiza denominador IPC positivo y un conteo de instrucciones util.
     if counters['cycles'][0] <= 0 or counters['instructions'][0] <= 0:
         raise ValueError('Ciclos e instrucciones deben ser mayores que cero')
     if counters['cache-misses'][0] > counters['cache-references'][0]:
@@ -62,27 +75,41 @@ def analyze(directory):
             raise ValueError('Tamanos y repeticiones deben ser positivos')
         for version in ('scalar', 'vector'):
             group = []
+            # Una muestra es un proceso completo que ejecuta reps kernels.
+            # Los contadores incluyen arranque, driver, memoria y E/S.
             for index in range(1, runs + 1):
                 counters = parse_counters((directory / f'{version}_{n}_{index}.csv').read_text())
                 c, ins, misses, refs = [counters[e][0] for e in EVENTS]
                 active = [value[1] for value in counters.values() if value[1] is not None]
                 minimum = min(active) if active else None
+                # IPC por muestra = instrucciones / ciclos del mismo proceso.
+                # Si refs=0, la tasa de fallos queda vacia, no se inventa un cero.
+                # El porcentaje activo minimo resume los eventos disponibles.
                 row = [n, version, index, reps, c, ins, misses, refs,
                        ins / c, 100 * misses / refs if refs else '',
                        minimum if minimum is not None else '']
                 samples.append(row)
                 group.append(row)
+            # Media aritmetica de cada contador entre procesos independientes.
             means = [statistics.mean(row[col] for row in group) for col in range(4, 8)]
+            # Desviacion estandar muestral: divisor runs-1. Con una muestra
+            # no puede estimarse; la celda queda vacia en vez de indicar cero.
             deviations = [statistics.stdev(row[col] for row in group) if runs > 1 else ''
                           for col in range(4, 8)]
             active = [row[10] for row in group if row[10] != '']
             work = n * reps  # elementos procesados por proceso (una pasada del kernel = N)
+            # IPC agregado = media(instrucciones) / media(ciclos), equivalente
+            # a suma(instrucciones) / suma(ciclos); no promedia los IPC individuales.
+            # La tasa agregada de fallos usa el mismo criterio de cociente de sumas.
+            # Por elemento divide los contadores del proceso por N*reps; sigue
+            # incluyendo los costes externos al kernel que conto perf.
             summaries.append([n, version, runs, reps, *means, *deviations,
                               means[1] / means[0],
                               100 * means[2] / means[3] if means[3] else '',
                               min(active) if active else '',
                               means[0] / work, means[1] / work, means[2] / work])
     # Validar todos los pares antes de escribir los resumenes.
+    # perf_samples.csv conserva cada proceso; perf_summary.csv agrega por N/version.
     for name, header, rows in [
         ('perf_samples.csv', ['n', 'version', 'sample', 'kernel_reps', 'cycles',
          'instructions', 'cache_misses', 'cache_references', 'ipc',
@@ -109,6 +136,8 @@ def analyze(directory):
              '| N | Version | Muestras | Kernel reps | Ciclos | Instrucciones | IPC | Cache misses | Fallos (%) | Activo minimo (%) | Ciclos/elem | Instr/elem | Misses/elem |',
              '|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|']
     for r in summaries:
+        # N/D solo representa una tasa sin denominador o un porcentaje activo
+        # ausente; los eventos de hardware obligatorios ya fueron validados.
         rate = f'{r[13]:.4f}' if r[13] != '' else 'N/D'
         active = f'{r[14]:.2f}' if r[14] != '' else 'N/D'
         lines.append(f'| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]:.2f} | {r[5]:.2f} | {r[12]:.4f} | {r[6]:.2f} | {rate} | {active} '
@@ -130,6 +159,8 @@ def main():
     try:
         rows = analyze(args.directory)
     except (OSError, ValueError, KeyError, TypeError) as exc:
+        # Informa archivos ausentes, eventos no disponibles y datos invalidos
+        # como un fallo explicito, sin publicar tablas con contadores inventados.
         parser.exit(1, f'Error: {exc}\n')
     print(f'Tabla lista: {args.directory / "perf_report.md"} ({len(rows)} filas)')
 
