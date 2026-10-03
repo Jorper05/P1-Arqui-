@@ -12,9 +12,12 @@ import numpy as np
 from gen_input import generate, SMALL
 
 ROOT = Path(__file__).resolve().parents[1]
+# Estadisticos obligatorios del resumen; se contrastan campo por campo.
 FIELDS = ('sum', 'mean', 'var', 'stddev', 'min', 'max')
 
 
+# Lee tanto la entrada como la salida completa: cabecera int32 y N float32
+# little endian. Exige longitud exacta y elementos finitos, sin muestreo.
 def read_input(path):
     raw = Path(path).read_bytes()
     if len(raw) < 4:
@@ -28,6 +31,8 @@ def read_input(path):
     return n, values
 
 
+# Extrae los resultados escritos por driver.c y rechaza campos duplicados,
+# estadisticos ausentes y valores no finitos.
 def read_summary(path):
     result = {}
     for line in Path(path).read_text().splitlines():
@@ -57,12 +62,17 @@ def reference_stats(values):
         count = np.float32(len(values))
         mean = np.float32(total / count)
 
+        # NumPy opera estas etapas en float32: diferencias y cuadrados.
+        # math.fsum acumula los cuadrados con mayor precision, y luego
+        # se redondea el total a float32 antes de dividir entre N.
         delta = values - mean
         squares = delta * delta
         squared_sum = np.float32(math.fsum(map(float, squares)))
         var = np.float32(squared_sum / count)
         stddev = np.sqrt(var)
 
+        # Reproduce el contrato NASM: si sigma es cero, copia la entrada.
+        # En otro caso calcula todos los elementos de (x - mean) / sigma.
         normalized = (
             values.copy() if stddev == 0 else delta / stddev
         )
@@ -76,15 +86,21 @@ def reference_stats(values):
 
 def discrepancy_mask(actual, expected, rtol, atol):
     """Marca errores con tolerancia relativa, o absoluta si la referencia es cero."""
+    # Compara en float64 para no introducir mas redondeo float32
+    # al calcular el error entre resultados ya producidos.
     actual, expected = np.asarray(actual, dtype=np.float64), np.asarray(expected, dtype=np.float64)
     if actual.shape != expected.shape:
         raise ValueError('Las formas de los resultados no coinciden')
     with np.errstate(over='ignore', invalid='ignore'):
+        # Criterio: |actual - esperado| <= rtol * |esperado| si esperado
+        # no es cero; si es cero se usa exclusivamente atol. No se suman
+        # ambas tolerancias como en np.isclose; NaN e infinito fallan.
         limit = np.where(expected == 0, atol, rtol * np.abs(expected))
         return (~np.isfinite(actual) | ~np.isfinite(expected)
                 | (np.abs(actual - expected) > limit))
 
 
+# Acepta solo si las formas coinciden y ningun elemento excede su limite.
 def close(actual, expected, rtol, atol):
     if np.shape(actual) != np.shape(expected):
         return False
@@ -93,6 +109,9 @@ def close(actual, expected, rtol, atol):
 
 def normalization_check(values, stats, output):
     """Comprueba la formula float32 con los parametros del propio ejecutable."""
+    # Comprobacion adicional e independiente de las tolerancias: usa
+    # media y sigma publicados por el ejecutable y exige igualdad exacta
+    # de valores con np.array_equal, no una aproximacion numerica.
     mean, sigma = np.float32(stats['mean']), np.float32(stats['stddev'])
     if not np.isfinite(mean) or not np.isfinite(sigma) or sigma < 0:
         return False
@@ -113,13 +132,19 @@ def precision_diagnostic(values, results, ref):
         print(f'  {name}: media={actual:.17g}, error absoluto de media={abs(actual-mean):.9g}')
 
 
+# Combina tres controles: estadisticos, arreglo completo frente a la
+# referencia/otra version y formula con parametros del propio ejecutable.
 def compare(values, results, rtol, atol, diagnose=False):
+    # Referencia hibrida: operaciones NumPy float32 y sumas math.fsum
+    # redondeadas a float32. No equivale a np.sum con acumulacion float32.
     ref, normalized = reference_stats(values)
     ok = True
     for group, fields in (('sum_array', ('sum',)),
                           ('compute_stats', ('mean', 'var', 'min', 'max', 'stddev'))):
         group_ok = True
         for key in fields:
+            # Cada version se compara contra la referencia. Con dos
+            # versiones, tambien se exige acuerdo entre Scalar y AVX2.
             checks = [close(stats[key], ref[key], rtol, atol) for stats, _ in results.values()]
             if len(results) == 2:
                 a, b = list(results.values())
@@ -131,6 +156,8 @@ def compare(values, results, rtol, atol, diagnose=False):
         print(f'[{"PASS" if group_ok else "FAIL"}] {group}')
         ok &= group_ok
     array_ok = True
+    # Compara TODOS los elementos normalizados, incluidos los remanentes
+    # de los bucles vectoriales. Agrega la comparacion entre versiones.
     pairs = [(name, output, normalized) for name, (_, output) in results.items()]
     if len(results) == 2:
         a, b = list(results.values())
@@ -142,6 +169,8 @@ def compare(values, results, rtol, atol, diagnose=False):
         if not pair_ok:
             array_ok = False
             if output.shape == expected.shape:
+                # Informa el primer indice discrepante y el total de errores;
+                # la decision se basa en todo el arreglo, no solo este indice.
                 bad = np.flatnonzero(discrepancy_mask(output, expected, rtol, atol))
                 i = int(bad[0])
                 print(f'  {name}: indice={i}, Expected={expected[i]:.9g}, obtenido={output[i]:.9g}, discrepancias={len(bad)}')
@@ -153,11 +182,13 @@ def compare(values, results, rtol, atol, diagnose=False):
         matched = normalization_check(values, stats, output)
         formula_ok &= matched
         print(f'[{"PASS" if matched else "FAIL"}] {name}: formula con media/stddev propios')
+    # El diagnostico aporta informacion; no modifica los limites ni el PASS.
     if diagnose:
         precision_diagnostic(values, results, ref)
     return bool(ok and array_ok and formula_ok)
 
 
+# Verifica que resumen y binario correspondan al mismo N de la entrada.
 def load_result(summary, output, n):
     stats = read_summary(summary)
     out_n, values = read_input(output)
@@ -176,6 +207,8 @@ def run_case(path, scalar, vector, rtol, atol, diagnose=False):
             output = Path(directory) / f'{name}.dat'
             run = subprocess.run([str(executable), str(Path(path).resolve()), str(output), '1'],
                                  capture_output=True, text=True, timeout=60)
+            # N=0 prueba el rechazo controlado del driver, sin producir
+            # archivos. No se calcula una referencia para el arreglo vacio.
             if n == 0:
                 controlled = (run.returncode > 0 and 'Error:' in run.stderr
                               and not output.exists() and not Path(str(output) + '.stats.txt').exists())
@@ -198,9 +231,11 @@ def main():
     parser.add_argument('--diagnose', action='store_true', help='Mostrar error de la media frente a math.fsum sin cambiar tolerancias')
     parser.add_argument('--scalar', type=Path, default=ROOT / 'bin/norm_scalar')
     parser.add_argument('--vector', type=Path, default=ROOT / 'bin/norm_vector')
+    # Limite relativo por defecto: 1e-4; absoluto para ceros: 1e-6.
     parser.add_argument('--rtol', type=float, default=1e-4)
     parser.add_argument('--atol', type=float, default=1e-6, help='Tolerancia absoluta solo si la referencia es cero')
     args = parser.parse_args()
+    # La tolerancia posicional, si existe, prevalece sobre --rtol.
     rtol = args.tolerance if args.tolerance is not None else args.rtol
     if not all(np.isfinite(x) and x >= 0 for x in (rtol, args.atol)):
         parser.error('Las tolerancias deben ser finitas y no negativas')
@@ -219,11 +254,17 @@ def main():
             with tempfile.TemporaryDirectory(prefix='verify-inputs-') as directory:
                 paths = [args.input] if args.input else []
                 if args.suite:
+                    # Casos pequenos, constantes y valores extremos; N=15
+                    # comprueba tambien el remanente de la version vectorial.
                     jobs = [(n, 'random') for n in SMALL] + [(16, 'constant'), (16, 'edge'), (15, 'edge')]
                     for n, mode in jobs:
                         path = Path(directory) / f'input_{n}_{mode}.dat'
+                        # Semilla fija para repetir exactamente los casos
+                        # aleatorios en el mismo entorno de Python.
                         generate(n, path, mode, 123)
                         paths.append(path)
+                    # Datos totalmente negativos y suma exactamente cero:
+                    # comprueban extremos y el uso de la tolerancia absoluta.
                     for name, values in (('negative', -np.arange(1, 18, dtype=np.float32)),
                                          ('zero_sum', np.array([-4, -3, -2, -1, 0, 1, 2, 3, 4], dtype=np.float32))):
                         path = Path(directory) / f'{name}.dat'
