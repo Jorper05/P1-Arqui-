@@ -19,6 +19,8 @@ typedef struct {
     double m2;
 } timing;
 
+/* Actualiza la media y la dispersion con el algoritmo de Welford.
+ * count es el numero de muestras acumuladas, incluida la actual. */
 static void record_time(timing *t, double ms, int count) {
     double delta = ms - t->mean;
     t->mean += delta / count;
@@ -34,6 +36,7 @@ static double elapsed_ms(struct timespec start, struct timespec end) {
            (end.tv_nsec - start.tv_nsec) / 1e6;
 }
 
+/* Reloj monotono para medir intervalos sin cambios del reloj civil. */
 static int timestamp(struct timespec *t) {
     if (clock_gettime(CLOCK_MONOTONIC, t) == 0) return 1;
     perror("Error: clock_gettime");
@@ -51,6 +54,10 @@ static uint64_t read_tsc(void) {
     return ((uint64_t)hi << 32) | lo;
 }
 
+/* Reserva memoria con direccion alineada a 32 bytes para los datos AVX2.
+ * Comprueba el desbordamiento antes de calcular el tamano y lo redondea
+ * a un multiplo de 32, como exige aligned_alloc. Incluso para count=0
+ * reserva un bloque minimo; inicializa todo el bloque, incluido el relleno. */
 static float *alloc_aligned_floats(size_t count) {
     if (count > (SIZE_MAX - (VEC_ALIGN - 1)) / sizeof(float)) {
         fprintf(stderr, "Error: tamano de arreglo fuera de rango.\n");
@@ -75,6 +82,7 @@ static float *read_input(const char *path, int *out_n) {
         fprintf(stderr, "Error: no se pudo abrir '%s': %s\n", path, strerror(errno));
         return NULL;
     }
+    /* Lee la cabecera int32 y exige un numero positivo de elementos. */
     if (fread(&n, sizeof(n), 1, f) != 1) {
         fprintf(stderr, "Error: archivo de entrada invalido (falta N o fallo de lectura).\n");
         goto done;
@@ -83,12 +91,14 @@ static float *read_input(const char *path, int *out_n) {
         fprintf(stderr, "Error: N debe ser mayor que cero (N=%d).\n", (int)n);
         goto done;
     }
+    /* Reserva el arreglo alineado y exige exactamente N valores float32. */
     arr = alloc_aligned_floats((size_t)n);
     if (!arr) goto done;
     if (fread(arr, sizeof(*arr), (size_t)n, f) != (size_t)n) {
         fprintf(stderr, "Error: archivo de entrada truncado o fallo de lectura.\n");
         goto done;
     }
+    /* Rechaza bytes adicionales y distingue EOF de un error de lectura. */
     if (fgetc(f) != EOF) {
         fprintf(stderr, "Error: contenido sobrante al final del archivo de entrada.\n");
         goto done;
@@ -97,12 +107,14 @@ static float *read_input(const char *path, int *out_n) {
         fprintf(stderr, "Error: fallo al leer el archivo de entrada.\n");
         goto done;
     }
+    /* NaN e infinito no se admiten como datos de entrada. */
     for (int i = 0; i < n; ++i) {
         if (!isfinite(arr[i])) {
             fprintf(stderr, "Error: dato no finito en el indice %d.\n", i);
             goto done;
         }
     }
+    /* Solo una lectura completa y valida permite devolver el arreglo. */
     valid = 1;
 done:
     if (fclose(f) != 0) {
@@ -117,6 +129,8 @@ done:
     return arr;
 }
 
+/* Guarda el arreglo normalizado en formato binario: int32 N y N float32.
+ * Verifica tanto las escrituras como el cierre del archivo. */
 static int write_output(const char *path, const float *arr, int n) {
     FILE *f = fopen(path, "wb");
     if (!f) {
@@ -132,6 +146,8 @@ static int write_output(const char *path, const float *arr, int n) {
     return ok;
 }
 
+/* Escribe el resumen de estadisticos y las medias y desviaciones muestrales
+ * de las mediciones. Los campos cycles contienen ticks TSC. */
 static int write_stats_summary(const char *path, int n, float sum,
                                float mean, float var, float stddev,
                                float min, float max, const timing times[4],
@@ -200,11 +216,15 @@ int main(int argc, char **argv) {
 
     int result = EXIT_FAILURE;
     int n = 0;
+    /* La lectura valida el archivo y devuelve la entrada ya alineada. */
     float *in = read_input(argv[1], &n);
     if (!in) return result;
+    /* La salida tambien requiere alineacion de 32 bytes. */
     float *out = alloc_aligned_floats((size_t)n);
     char *summary_path = NULL;
     if (!out) goto done;
+    /* Construye la ruta del resumen asociado: <output.dat>.stats.txt.
+     * Incluye espacio para el terminador nulo y evita desbordar size_t. */
     const char suffix[] = ".stats.txt";
     size_t path_len = strlen(argv[2]);
     if (path_len > SIZE_MAX - sizeof(suffix)) goto done;
@@ -218,22 +238,31 @@ int main(int argc, char **argv) {
 
     float sum = 0.0f, mean = 0.0f, var = 0.0f, min = 0.0f, max = 0.0f;
     float stddev = 0.0f;
+    /* Indices 0, 1 y 2: suma, estadisticos y normalizacion; 3: total. */
     timing times[4] = {{0}};
     timing cycles[4] = {{0}};
+    /* Repite las llamadas NASM sobre la misma entrada y acumula mediciones.
+     * stats.h declara su interfaz; el enlace selecciona la implementacion
+     * escalar o vectorial. Las rutinas reciben N elementos utiles, sin relleno. */
     for (int r = 0; r < reps; ++r) {
         struct timespec t0, t1, t2, t3;
         if (!timestamp(&t0)) goto done;
         uint64_t c0 = read_tsc();
+        /* NASM: devuelve la suma del arreglo. t0/t1 delimitan el tiempo
+         * transcurrido; c0/c1 delimitan los ticks TSC de esta llamada. */
         sum = sum_array(in, n);
         uint64_t c1 = read_tsc();
         if (!timestamp(&t1)) goto done;
         uint64_t c2 = read_tsc();
+        /* NASM: escribe media, varianza, minimo y maximo mediante punteros. */
         compute_stats(in, n, &mean, &var, &min, &max);
         uint64_t c3 = read_tsc();
         if (!timestamp(&t2)) goto done;
         double sum_ms = elapsed_ms(t0, t1);
         double stats_ms = elapsed_ms(t1, t2);
 
+        /* Valida los estadisticos antes de calcular la desviacion estandar.
+         * Esta validacion y sqrtf quedan fuera de los intervalos medidos. */
         if (!isfinite(sum) || !isfinite(mean) || !isfinite(var) ||
             !isfinite(min) || !isfinite(max) || var < 0.0f) {
             fprintf(stderr, "Error: estadisticos invalidos; revise los kernels o el rango float32.\n");
@@ -242,10 +271,14 @@ int main(int argc, char **argv) {
         stddev = sqrtf(var);
         if (!timestamp(&t2)) goto done;
         uint64_t c4 = read_tsc();
+        /* NASM: escribe la normalizacion en out usando media y desviacion.
+         * t2 se toma de nuevo para excluir la validacion y sqrtf. */
         normalize_array(in, out, n, mean, stddev);
         uint64_t c5 = read_tsc();
         if (!timestamp(&t3)) goto done;
         double norm_ms = elapsed_ms(t2, t3);
+        /* Evita publicar diferencias TSC nulas o no monotonas.
+         * Son ticks del contador temporal, no ciclos de nucleo de perf. */
         if (c1 <= c0 || c3 <= c2 || c5 <= c4) {
             fprintf(stderr, "Error: lectura TSC no monotona; no se publican mediciones.\n");
             goto done;
@@ -253,6 +286,8 @@ int main(int argc, char **argv) {
         double sum_cycles = (double)(c1 - c0);
         double stats_cycles = (double)(c3 - c2);
         double norm_cycles = (double)(c5 - c4);
+        /* Acumula cada muestra sin guardar un arreglo de mediciones.
+         * Los intervalos incluyen el costo de instrumentacion y barreras. */
         record_time(&cycles[0], sum_cycles, r + 1);
         record_time(&cycles[1], stats_cycles, r + 1);
         record_time(&cycles[2], norm_cycles, r + 1);
@@ -264,16 +299,20 @@ int main(int argc, char **argv) {
          * Excluye lectura, escritura, sqrtf y validaciones. */
         record_time(&times[3], sum_ms + stats_ms + norm_ms, r + 1);
     }
+    /* Comprueba todos los elementos normalizados antes de escribirlos. */
     for (int i = 0; i < n; ++i) {
         if (!isfinite(out[i])) {
             fprintf(stderr, "Error: salida no finita en el indice %d.\n", i);
             goto done;
         }
     }
+    /* Guarda el arreglo completo y su resumen solo tras validar la salida.
+     * Cualquier error conserva EXIT_FAILURE y conduce a la limpieza. */
     if (!write_output(argv[2], out, n)) goto done;
     if (!write_stats_summary(summary_path, n, sum, mean, var, stddev,
                              min, max, times, cycles, reps)) goto done;
 
+    /* Muestra los estadisticos y el resumen de rendimiento en la consola. */
     printf("N        = %d\nSuma     = %.6f\nMedia    = %.6f\n"
            "Varianza = %.6f\nStdDev   = %.6f\nMinimo   = %.6f\nMaximo   = %.6f\n",
            n, sum, mean, var, stddev, min, max);
@@ -287,6 +326,8 @@ int main(int argc, char **argv) {
            cycles[3].mean, time_stddev(&cycles[3], reps));
     result = EXIT_SUCCESS;
 done:
+    /* Punto comun de liberacion, tanto en exito como en error.
+     * free acepta NULL y libera tambien bloques obtenidos con aligned_alloc. */
     free(summary_path);
     free(out);
     free(in);
