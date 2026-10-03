@@ -26,6 +26,9 @@ PERF_MIN_ELEMENTS = 200_000_000
 PERF_MAX_REPS = 1_000_000
 
 
+# Calcula repeticiones internas del driver para amortizar el arranque y la E/S.
+# El limite PERF_MAX_REPS puede impedir alcanzar el objetivo de elementos
+# o el minimo solicitado; el numero efectivo se registra en metadata.json.
 def perf_reps(n, minimum):
     return min(PERF_MAX_REPS, max(minimum, math.ceil(PERF_MIN_ELEMENTS / n)))
 
@@ -46,20 +49,29 @@ def run(command, **kwargs):
     return result
 
 
+# Una muestra inicia un proceso con UNA repeticion interna del kernel.
+# Lee la medicion del driver, no el tiempo total de subprocess ni la E/S.
 def sample(binary, source, destination):
     summary = Path(str(destination) + '.stats.txt')
+    # Elimina el resumen anterior para no reutilizar una medicion obsoleta.
     summary.unlink(missing_ok=True)
     run([binary, source, destination, '1'])
     fields = dict(line.split('=', 1) for line in summary.read_text().splitlines())
+    # kernel_ms suma los intervalos de las tres llamadas NASM del driver.
+    # Excluye lectura/escritura, sqrtf y validaciones; incluye instrumentacion.
     elapsed = float(fields['kernel_ms'])
     if 'kernel_cycles' not in fields:
         raise ValueError('El driver no reporta kernel_cycles; recompile con make clean && make')
+    # kernel_cycles son ticks TSC de las llamadas, incluidos sus costes
+    # de medicion. No son los ciclos de nucleo del evento cycles de perf.
     cycles = float(fields['kernel_cycles'])
     if not all(math.isfinite(v) and v > 0 for v in (elapsed, cycles)):
         raise ValueError('El tiempo y los ciclos del kernel deben ser finitos y mayores que cero')
     return elapsed, cycles
 
 
+# Verifica estadisticos y arreglo normalizado antes de medir cada tamano.
+# Conserva el diagnostico y detiene el experimento si falla la correccion.
 def verify_size(source, n, directory):
     result = subprocess.run([sys.executable, ROOT / 'tools/verify_reference.py', source],
                             capture_output=True, text=True, timeout=600)
@@ -81,8 +93,12 @@ def benchmark(args, directory, work):
             verify_size(source, n, directory)
             times = {'scalar': [], 'vector': []}
             cycles = {'scalar': [], 'vector': []}
+            # Una ejecucion de calentamiento por version, descartada. Es un
+            # proceso separado: no calienta el proceso de la siguiente muestra.
             for version in times:
                 sample(ROOT / f'bin/norm_{version}', source, work / f'{version}.dat')
+            # --reps indica aqui muestras independientes por version y N.
+            # Cada muestra vuelve a ejecutar el binario con una repeticion.
             for i in range(args.reps):
                 # Alternar el orden reduce el sesgo de ejecutar siempre uno primero.
                 order = ('scalar', 'vector') if i % 2 == 0 else ('vector', 'scalar')
@@ -90,16 +106,23 @@ def benchmark(args, directory, work):
                     elapsed, ticks = sample(ROOT / f'bin/norm_{version}', source, work / f'{version}.dat')
                     times[version].append(elapsed)
                     cycles[version].append(ticks)
+                    # Conserva cada muestra cruda, sin reducirla a promedios.
                     writer.writerow([n, version, i + 1, elapsed, ticks])
+                # Vacia el buffer Python tras cada par de muestras; permite
+                # conservar resultados parciales si una medicion posterior falla.
                 stream.flush()
+            # Calcula medias y speedup temporal = tiempo escalar / vectorial.
             scalar, vector = (statistics.mean(times[v]) for v in ('scalar', 'vector'))
             c_scalar, c_vector = (statistics.mean(cycles[v]) for v in ('scalar', 'vector'))
             print(f'N={n}: escalar={scalar:.6f} ms ({c_scalar:.0f} ciclos TSC), '
                   f'AVX2={vector:.6f} ms ({c_vector:.0f} ciclos TSC), '
                   f'speedup={scalar / vector:.3f}', flush=True)
+    # El analizador genera los resultados agregados tras completar las muestras.
     run([sys.executable, ROOT / 'benchmark/analyze_results.py', directory])
 
 
+# Construye perf stat con salida delimitada por punto y coma en un archivo.
+# -- separa las opciones de perf del comando del ejecutable medido.
 def perf_command(args, report, command):
     # Ciclos e instrucciones comparten grupo para que el IPC use el mismo intervalo.
     return [args.perf, 'stat', '--no-big-num', '-x', ';', '-o', str(report),
@@ -107,6 +130,8 @@ def perf_command(args, report, command):
             '--', *map(str, command)]
 
 
+# Comprueba disponibilidad y acceso real a los eventos antes del experimento.
+# Guarda version, configuracion observable y diagnostico sin cambiar permisos.
 def check_perf(args, directory):
     if shutil.which(args.perf) is None:
         raise RuntimeError('No se encontro perf. Instale linux-tools compatible con su kernel '
@@ -135,6 +160,9 @@ def parse_perf_report(report):
     return parse_counters(report.read_text())
 
 
+# perf mide el proceso COMPLETO: arranque, E/S y repeticiones internas.
+# Aumentar las repeticiones busca que el trabajo NASM domine los contadores,
+# pero no elimina los costes externos ni aisla automaticamente el kernel.
 def perf(args, directory, work):
     commands = []
     for n in args.sizes:
@@ -145,6 +173,8 @@ def perf(args, directory, work):
             sample(ROOT / f'bin/norm_{version}', source, work / f'{version}.dat')
         reps = perf_reps(n, args.reps)
         print(f'perf N={n}: {reps} repeticiones del kernel por proceso', flush=True)
+        # --perf-runs controla procesos independientes por version y tamano;
+        # reps controla cuantas veces cada proceso ejecuta el kernel.
         for index in range(1, args.perf_runs + 1):
             order = ('scalar', 'vector') if index % 2 else ('vector', 'scalar')
             for version in order:
@@ -152,15 +182,21 @@ def perf(args, directory, work):
                 command = perf_command(args, report, [ROOT / f'bin/norm_{version}',
                                        source, work / f'{version}.dat', reps])
                 commands.append(command)
+                # Guarda los comandos acumulados para documentar la ejecucion.
                 (directory / 'commands.json').write_text(json.dumps(commands, indent=2) + '\n')
+                # LC_ALL=C estabiliza el formato de los contadores para analizarlos.
                 result = subprocess.run(command, capture_output=True, text=True, timeout=600,
                                         env={**os.environ, 'LC_ALL': 'C'})
+                # CSV: contadores crudos; LOG: salida y errores del proceso.
                 report.with_suffix('.log').write_text(result.stdout + result.stderr)
                 if result.returncode:
                     raise RuntimeError(f'perf fallo para {version}, N={n}, muestra={index}. '
                                        f'Revise {report} y su .log; no se publicara un resumen.')
+                # Exige que el reporte contenga contadores aceptables antes
+                # de incorporarlo al analisis final.
                 parse_perf_report(report)
                 print(f'Contadores: {report}', flush=True)
+    # Analiza los CSV conservados solo si todas las ejecuciones han terminado.
     run([sys.executable, ROOT / 'benchmark/analyze_perf.py', directory])
 
 
@@ -168,6 +204,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mode', choices=('benchmark', 'perf'))
     parser.add_argument('--sizes', nargs='+', type=positive, default=[1000, 100000, 1000000, 50000000])
+    # benchmark: muestras por version; perf: minimo de repeticiones internas
+    # sujeto al limite PERF_MAX_REPS y al ajuste por tamano.
     parser.add_argument('--reps', type=positive, default=30)
     parser.add_argument('--seed', type=int, default=123)
     parser.add_argument('--perf', default='perf')
@@ -183,9 +221,13 @@ def main():
         parser.error('no repita tamanos')
     parent = args.results_dir or ROOT / 'output' / args.mode
     parent.mkdir(parents=True, exist_ok=True)
+    # Directorio distinto para cada ejecucion; evita mezclar experimentos.
     directory = Path(tempfile.mkdtemp(prefix='run-', dir=parent))
     print(f'Resultados de esta ejecucion: {directory}', flush=True)
     try:
+        # Registra entorno, parametros, alcance y hashes de los binarios
+        # para relacionar las mediciones con los ejecutables utilizados.
+        # El objetivo N*reps de perf queda sujeto al limite PERF_MAX_REPS.
         metadata = {
             'utc': datetime.now(timezone.utc).isoformat(),
             'platform': platform.platform(), 'python': sys.version,
@@ -218,12 +260,16 @@ def main():
         (directory / 'verification.log').write_text(verification.stdout + verification.stderr)
         if verification.returncode:
             raise RuntimeError('La verificacion fallo; consulte verification.log. No se midio rendimiento.')
+        # Entradas y salidas intermedias se eliminan al salir; reportes,
+        # metadatos y muestras permanecen en el directorio de resultados.
         with tempfile.TemporaryDirectory(prefix='measure-') as temporary:
             {'benchmark': benchmark, 'perf': perf}[args.mode](args, directory, Path(temporary))
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        # Conserva resultados parciales y marca la ejecucion como fallida.
         (directory / 'FAILED.txt').write_text(str(exc) + '\n')
         print(f'Error: {exc}')
         return 1
+    # Marca el exito solo despues de las mediciones y del analisis final.
     (directory / 'COMPLETE.txt').write_text('Mediciones completadas.\n')
     return 0
 
